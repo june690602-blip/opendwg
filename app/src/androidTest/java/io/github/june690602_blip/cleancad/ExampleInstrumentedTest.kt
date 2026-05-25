@@ -1,4 +1,4 @@
-package io.github.june690602_blip.opendwg
+package io.github.june690602_blip.cleancad
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +19,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("io.github.june690602_blip.opendwg", appContext.packageName)
+        assertEquals("io.github.june690602_blip.cleancad", appContext.packageName)
     }
 }

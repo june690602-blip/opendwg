@@ -1,4 +1,4 @@
-package io.github.june690602_blip.opendwg
+package io.github.june690602_blip.cleancad
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

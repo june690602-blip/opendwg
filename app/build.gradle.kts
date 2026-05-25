@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.june690602_blip.opendwg"
+    namespace = "io.github.june690602_blip.cleancad"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -11,8 +11,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.june690602_blip.opendwg"
-        minSdk = 28
+        applicationId = "io.github.june690602_blip.cleancad"
+        minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
