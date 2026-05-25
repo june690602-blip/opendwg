@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OpenDWG"
+rootProject.name = "CleanCAD"
 include(":app")
  

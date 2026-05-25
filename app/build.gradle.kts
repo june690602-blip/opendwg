@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.june690602_blip.opendwg"
+    namespace = "io.github.june690602_blip.cleancad"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -11,13 +11,24 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.june690602_blip.opendwg"
-        minSdk = 28
+        applicationId = "io.github.june690602_blip.cleancad"
+        minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                // CMake 4.x rejects projects requiring CMake < 3.5 (LibreDWG uses 2.8...).
+                arguments += "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+            }
+        }
     }
 
     buildTypes {
@@ -33,6 +44,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
+    }
+    ndkVersion = "30.0.14904198"
 }
 
 dependencies {
