@@ -375,4 +375,159 @@ DOOR
         assertEquals(2.0, insert.scaleX, 1e-9)
         assertEquals(90.0, insert.rotationDeg, 1e-9)
     }
+
+    // ---- LAYER 테이블 ----
+
+    @Test
+    fun parseLayers_extractedFromTablesSection() {
+        val dxf = """
+  0
+SECTION
+  2
+TABLES
+  0
+TABLE
+  2
+LAYER
+ 70
+2
+  0
+LAYER
+  2
+walls
+ 62
+3
+  0
+LAYER
+  2
+pipes
+ 62
+1
+  0
+ENDTAB
+  0
+ENDSEC
+  0
+SECTION
+  2
+ENTITIES
+  0
+ENDSEC
+  0
+EOF""".trimIndent()
+
+        val drawing = DxfParser.parse(dxf)
+        assertEquals(2, drawing.layers.size)
+        assertEquals("walls", drawing.layers[0].name)
+        assertEquals(3, drawing.layers[0].colorIndex)
+        assertEquals("pipes", drawing.layers[1].name)
+        assertEquals(1, drawing.layers[1].colorIndex)
+    }
+
+    // ---- DIMENSION ----
+
+    @Test
+    fun parseDimension_returnsPoints() {
+        val dxf = withEntities("""
+  0
+DIMENSION
+  8
+dim-layer
+ 10
+100.0
+ 20
+200.0
+ 11
+150.0
+ 21
+210.0
+ 70
+1
+  1
+override""".trimIndent())
+
+        val dim = DxfParser.parse(dxf).entities[0] as DxfDimension
+        assertEquals("dim-layer", dim.layer)
+        assertEquals(Vec2(100.0, 200.0), dim.definitionPoint)
+        assertEquals(Vec2(150.0, 210.0), dim.textMidPoint)
+        assertEquals(1, dim.dimType)
+        assertEquals("override", dim.textOverride)
+    }
+
+    // ---- HATCH ----
+
+    @Test
+    fun parseHatch_solidFlag() {
+        val dxf = withEntities("""
+  0
+HATCH
+  8
+0
+ 10
+0.0
+ 20
+0.0
+ 70
+1""".trimIndent())
+
+        val hatch = DxfParser.parse(dxf).entities[0] as DxfHatch
+        assertTrue(hatch.isSolid)
+    }
+
+    // ---- LEADER ----
+
+    @Test
+    fun parseLeader_returnsVertices() {
+        val dxf = withEntities("""
+  0
+LEADER
+  8
+0
+ 10
+0.0
+ 20
+0.0
+ 10
+50.0
+ 20
+50.0
+ 10
+100.0
+ 20
+25.0""".trimIndent())
+
+        val leader = DxfParser.parse(dxf).entities[0] as DxfLeader
+        assertEquals(3, leader.vertices.size)
+        assertEquals(Vec2(0.0, 0.0), leader.vertices[0])
+    }
+
+    // ---- BoundingBox ----
+
+    @Test
+    fun boundingBox_calculatedFromLineEndpoints() {
+        val dxf = withEntities("""
+  0
+LINE
+ 10
+-10.0
+ 20
+-20.0
+ 11
+30.0
+ 21
+40.0""".trimIndent())
+
+        val box = DxfParser.parse(dxf).extents!!
+        assertEquals(-10.0, box.minX, 1e-9)
+        assertEquals(-20.0, box.minY, 1e-9)
+        assertEquals(30.0, box.maxX, 1e-9)
+        assertEquals(40.0, box.maxY, 1e-9)
+    }
+
+    @Test
+    fun boundingBox_nullWhenNoEntities() {
+        // withEntities("") 사용 시 빈 줄이 생기므로 직접 DXF 문자열 사용
+        val dxf = "  0\nSECTION\n  2\nENTITIES\n  0\nENDSEC\n  0\nEOF"
+        assertNull(DxfParser.parse(dxf).extents)
+    }
 }

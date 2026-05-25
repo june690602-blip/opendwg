@@ -282,15 +282,52 @@ object DxfParser {
         return DxfInsert(layer, blockName, Vec2(x, y), scaleX, scaleY, rotation)
     }
 
-    // Task 6에서 구현
     private fun parseDimension(reader: DxfReader): DxfDimension {
-        skipEntityBody(reader); return DxfDimension("0", Vec2(0.0, 0.0), Vec2(0.0, 0.0), 0)
+        var layer = "0"; var defX = 0.0; var defY = 0.0
+        var midX = 0.0; var midY = 0.0; var dimType = 0; var textOverride = ""
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                10 -> defX = next.value.toDouble()
+                20 -> defY = next.value.toDouble()
+                11 -> midX = next.value.toDouble()
+                21 -> midY = next.value.toDouble()
+                70 -> dimType = next.value.toIntOrNull() ?: 0
+                1  -> textOverride = next.value
+            }
+        }
+        return DxfDimension(layer, Vec2(defX, defY), Vec2(midX, midY), dimType, textOverride)
     }
+
     private fun parseHatch(reader: DxfReader): DxfHatch {
-        skipEntityBody(reader); return DxfHatch("0", false)
+        var layer = "0"; var isSolid = false
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                70 -> isSolid = next.value.trim() == "1"
+            }
+        }
+        return DxfHatch(layer, isSolid)
     }
+
     private fun parseLeader(reader: DxfReader): DxfLeader {
-        skipEntityBody(reader); return DxfLeader("0", emptyList())
+        var layer = "0"
+        val vertices = mutableListOf<Vec2>()
+        var vx = 0.0; var hasVx = false
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                10 -> { vx = next.value.toDouble(); hasVx = true }
+                20 -> if (hasVx) { vertices.add(Vec2(vx, next.value.toDouble())); hasVx = false }
+            }
+        }
+        return DxfLeader(layer, vertices)
     }
 
     // ---- BoundingBox ----
