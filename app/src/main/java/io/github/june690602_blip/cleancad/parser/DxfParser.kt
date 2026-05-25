@@ -227,15 +227,59 @@ object DxfParser {
         return DxfSpline(layer, degree, controlPoints)
     }
 
-    // Task 5에서 구현
     private fun parseText(reader: DxfReader): DxfText {
-        skipEntityBody(reader); return DxfText("0", Vec2(0.0, 0.0), 0.0, "")
+        var layer = "0"; var x = 0.0; var y = 0.0
+        var height = 0.0; var text = ""; var rotation = 0.0
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                10 -> x = next.value.toDouble()
+                20 -> y = next.value.toDouble()
+                40 -> height = next.value.toDouble()
+                1  -> text = next.value
+                50 -> rotation = next.value.toDouble()
+            }
+        }
+        return DxfText(layer, Vec2(x, y), height, text, rotation)
     }
+
     private fun parseMText(reader: DxfReader): DxfMText {
-        skipEntityBody(reader); return DxfMText("0", Vec2(0.0, 0.0), 0.0, "")
+        var layer = "0"; var x = 0.0; var y = 0.0
+        var height = 0.0; val textParts = mutableListOf<String>(); var rotation = 0.0
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8     -> layer = next.value
+                10    -> x = next.value.toDouble()
+                20    -> y = next.value.toDouble()
+                40    -> height = next.value.toDouble()
+                1, 3  -> textParts.add(next.value)
+                50    -> rotation = next.value.toDouble()
+            }
+        }
+        return DxfMText(layer, Vec2(x, y), height, textParts.joinToString(""), rotation)
     }
+
     private fun parseInsert(reader: DxfReader): DxfInsert {
-        skipEntityBody(reader); return DxfInsert("0", "", Vec2(0.0, 0.0))
+        var layer = "0"; var blockName = ""; var x = 0.0; var y = 0.0
+        var scaleX = 1.0; var scaleY = 1.0; var rotation = 0.0
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                2  -> blockName = next.value
+                10 -> x = next.value.toDouble()
+                20 -> y = next.value.toDouble()
+                41 -> scaleX = next.value.toDouble()
+                42 -> scaleY = next.value.toDouble()
+                50 -> rotation = next.value.toDouble()
+            }
+        }
+        return DxfInsert(layer, blockName, Vec2(x, y), scaleX, scaleY, rotation)
     }
 
     // Task 6에서 구현

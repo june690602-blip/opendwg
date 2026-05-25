@@ -294,4 +294,85 @@ SPLINE
         assertEquals(Vec2(0.0, 0.0), spline.controlPoints[0])
         assertEquals(Vec2(5.0, 10.0), spline.controlPoints[1])
     }
+
+    // ---- TEXT ----
+
+    @Test
+    fun parseText_returnsString() {
+        val dxf = withEntities("""
+  0
+TEXT
+  8
+text-layer
+ 10
+10.0
+ 20
+20.0
+ 40
+2.5
+  1
+Hello World
+ 50
+45.0""".trimIndent())
+
+        val text = DxfParser.parse(dxf).entities[0] as DxfText
+        assertEquals("text-layer", text.layer)
+        assertEquals(Vec2(10.0, 20.0), text.insertionPoint)
+        assertEquals(2.5, text.height, 1e-9)
+        assertEquals("Hello World", text.text)
+        assertEquals(45.0, text.rotationDeg, 1e-9)
+    }
+
+    // ---- MTEXT ----
+
+    @Test
+    fun parseMText_concatenatesChunks() {
+        val dxf = withEntities("""
+  0
+MTEXT
+  8
+0
+ 10
+0.0
+ 20
+0.0
+ 40
+3.0
+  3
+First part
+  1
+Second part""".trimIndent())
+
+        val mtext = DxfParser.parse(dxf).entities[0] as DxfMText
+        assertEquals("First partSecond part", mtext.text)
+    }
+
+    // ---- INSERT ----
+
+    @Test
+    fun parseInsert_returnsBlockNameAndPoint() {
+        val dxf = withEntities("""
+  0
+INSERT
+  8
+0
+  2
+DOOR
+ 10
+100.0
+ 20
+200.0
+ 41
+2.0
+ 42
+2.0
+ 50
+90.0""".trimIndent())
+
+        val insert = DxfParser.parse(dxf).entities[0] as DxfInsert
+        assertEquals("DOOR", insert.blockName)
+        assertEquals(Vec2(100.0, 200.0), insert.insertionPoint)
+        assertEquals(2.0, insert.scaleX, 1e-9)
+        assertEquals(90.0, insert.rotationDeg, 1e-9)
+    }
 }
