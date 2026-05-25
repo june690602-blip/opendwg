@@ -3,13 +3,17 @@ package io.github.june690602_blip.cleancad.parser
 data class GroupCode(val code: Int, val value: String)
 
 class DxfReader(input: String) {
-    // 빈 줄 제거: DXF 파서가 빈 줄에서 NumberFormatException 발생하지 않도록
-    private val lines = input.lines().filter { it.isNotBlank() }
+    private val lines = input.lines()
     private var pos = 0
 
-    fun hasNext(): Boolean = pos + 1 < lines.size
+    fun hasNext(): Boolean {
+        var p = pos
+        while (p < lines.size && lines[p].isBlank()) p++
+        return p + 1 < lines.size
+    }
 
     fun next(): GroupCode {
+        while (pos < lines.size && lines[pos].isBlank()) pos++
         require(pos + 1 < lines.size) { "DxfReader exhausted at position $pos (${lines.size} lines)" }
         val code = lines[pos].trim().toInt()
         val value = lines[pos + 1].trim()
@@ -18,9 +22,11 @@ class DxfReader(input: String) {
     }
 
     fun peek(): GroupCode? {
-        if (pos + 1 >= lines.size) return null
+        var p = pos
+        while (p < lines.size && lines[p].isBlank()) p++
+        if (p + 1 >= lines.size) return null
         return try {
-            GroupCode(lines[pos].trim().toInt(), lines[pos + 1].trim())
+            GroupCode(lines[p].trim().toInt(), lines[p + 1].trim())
         } catch (_: NumberFormatException) {
             null
         }
