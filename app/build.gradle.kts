@@ -22,6 +22,13 @@ android {
         ndk {
             abiFilters += listOf("x86_64")
         }
+
+        externalNativeBuild {
+            cmake {
+                // CMake 4.x rejects projects requiring CMake < 3.5 (LibreDWG uses 2.8...).
+                arguments += "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+            }
+        }
     }
 
     buildTypes {
