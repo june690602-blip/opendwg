@@ -168,4 +168,130 @@ XLINE
         assertTrue(drawing.entities[0] is DxfUnknown)
         assertEquals("XLINE", (drawing.entities[0] as DxfUnknown).type)
     }
+
+    // ---- LWPOLYLINE ----
+
+    @Test
+    fun parseLwPolyline_returnsVertices() {
+        val dxf = withEntities("""
+  0
+LWPOLYLINE
+  8
+0
+ 90
+3
+ 70
+0
+ 10
+0.0
+ 20
+0.0
+ 10
+100.0
+ 20
+0.0
+ 10
+50.0
+ 20
+50.0""".trimIndent())
+
+        val drawing = DxfParser.parse(dxf)
+        val poly = drawing.entities[0] as DxfLwPolyline
+        assertEquals(3, poly.vertices.size)
+        assertEquals(Vec2(0.0, 0.0), poly.vertices[0])
+        assertEquals(Vec2(100.0, 0.0), poly.vertices[1])
+        assertEquals(Vec2(50.0, 50.0), poly.vertices[2])
+        assertFalse(poly.closed)
+    }
+
+    @Test
+    fun parseLwPolyline_closedFlag() {
+        val dxf = withEntities("""
+  0
+LWPOLYLINE
+ 90
+2
+ 70
+1
+ 10
+0.0
+ 20
+0.0
+ 10
+10.0
+ 20
+0.0""".trimIndent())
+
+        val poly = DxfParser.parse(dxf).entities[0] as DxfLwPolyline
+        assertTrue(poly.closed)
+    }
+
+    // ---- ELLIPSE ----
+
+    @Test
+    fun parseEllipse_returnsCenterAndRatio() {
+        val dxf = withEntities("""
+  0
+ELLIPSE
+  8
+0
+ 10
+10.0
+ 20
+20.0
+ 11
+5.0
+ 21
+0.0
+ 40
+0.5
+ 41
+0.0
+ 42
+6.283185307179586""".trimIndent())
+
+        val ellipse = DxfParser.parse(dxf).entities[0] as DxfEllipse
+        assertEquals(Vec2(10.0, 20.0), ellipse.center)
+        assertEquals(Vec2(5.0, 0.0), ellipse.majorAxis)
+        assertEquals(0.5, ellipse.minorRatio, 1e-9)
+    }
+
+    // ---- SPLINE ----
+
+    @Test
+    fun parseSpline_returnsControlPoints() {
+        val dxf = withEntities("""
+  0
+SPLINE
+  8
+0
+ 71
+3
+ 73
+3
+ 10
+0.0
+ 20
+0.0
+ 30
+0.0
+ 10
+5.0
+ 20
+10.0
+ 30
+0.0
+ 10
+10.0
+ 20
+0.0
+ 30
+0.0""".trimIndent())
+
+        val spline = DxfParser.parse(dxf).entities[0] as DxfSpline
+        assertEquals(3, spline.degree)
+        assertEquals(3, spline.controlPoints.size)
+        assertEquals(Vec2(0.0, 0.0), spline.controlPoints[0])
+        assertEquals(Vec2(5.0, 10.0), spline.controlPoints[1])
+    }
 }

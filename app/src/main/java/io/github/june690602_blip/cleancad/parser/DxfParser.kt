@@ -172,15 +172,59 @@ object DxfParser {
         return DxfArc(layer, Vec2(cx, cy), r, startAngle, endAngle)
     }
 
-    // Task 4에서 구현 (지금은 stub — skipEntityBody 처리)
     private fun parseLwPolyline(reader: DxfReader): DxfLwPolyline {
-        skipEntityBody(reader); return DxfLwPolyline("0", emptyList(), false)
+        var layer = "0"; var closed = false
+        val vertices = mutableListOf<Vec2>()
+        var currentX = 0.0; var hasX = false
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                70 -> closed = (next.value.toIntOrNull() ?: 0) and 1 != 0
+                10 -> { currentX = next.value.toDouble(); hasX = true }
+                20 -> if (hasX) { vertices.add(Vec2(currentX, next.value.toDouble())); hasX = false }
+            }
+        }
+        return DxfLwPolyline(layer, vertices, closed)
     }
+
     private fun parseEllipse(reader: DxfReader): DxfEllipse {
-        skipEntityBody(reader); return DxfEllipse("0", Vec2(0.0, 0.0), Vec2(1.0, 0.0), 1.0, 0.0, Math.PI * 2)
+        var layer = "0"; var cx = 0.0; var cy = 0.0
+        var majX = 0.0; var majY = 0.0; var minorRatio = 1.0
+        var startParam = 0.0; var endParam = Math.PI * 2
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                10 -> cx = next.value.toDouble()
+                20 -> cy = next.value.toDouble()
+                11 -> majX = next.value.toDouble()
+                21 -> majY = next.value.toDouble()
+                40 -> minorRatio = next.value.toDouble()
+                41 -> startParam = next.value.toDouble()
+                42 -> endParam = next.value.toDouble()
+            }
+        }
+        return DxfEllipse(layer, Vec2(cx, cy), Vec2(majX, majY), minorRatio, startParam, endParam)
     }
+
     private fun parseSpline(reader: DxfReader): DxfSpline {
-        skipEntityBody(reader); return DxfSpline("0", 3, emptyList())
+        var layer = "0"; var degree = 3
+        val controlPoints = mutableListOf<Vec2>()
+        var cpX = 0.0; var hasCpX = false
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                71 -> degree = next.value.toIntOrNull() ?: 3
+                10 -> { cpX = next.value.toDouble(); hasCpX = true }
+                20 -> if (hasCpX) { controlPoints.add(Vec2(cpX, next.value.toDouble())); hasCpX = false }
+            }
+        }
+        return DxfSpline(layer, degree, controlPoints)
     }
 
     // Task 5에서 구현
