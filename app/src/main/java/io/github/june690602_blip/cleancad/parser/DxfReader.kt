@@ -10,6 +10,7 @@ class DxfReader(input: String) {
     fun hasNext(): Boolean = pos + 1 < lines.size
 
     fun next(): GroupCode {
+        require(pos + 1 < lines.size) { "DxfReader exhausted at position $pos (${lines.size} lines)" }
         val code = lines[pos].trim().toInt()
         val value = lines[pos + 1].trim()
         pos += 2

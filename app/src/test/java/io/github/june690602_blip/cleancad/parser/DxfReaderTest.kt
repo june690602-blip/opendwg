@@ -25,6 +25,17 @@ class DxfReaderTest {
     }
 
     @Test
+    fun next_advancesPositionOnEachCall() {
+        val reader = DxfReader("  0\nSECTION\n  2\nENTITIES")
+        val first = reader.next()
+        val second = reader.next()
+        assertEquals(0, first.code)
+        assertEquals("SECTION", first.value)
+        assertEquals(2, second.code)
+        assertEquals("ENTITIES", second.value)
+    }
+
+    @Test
     fun peek_returnsNextWithoutAdvancing() {
         val reader = DxfReader("  0\nLINE\n  8\nlayer0")
         val peeked = reader.peek()
