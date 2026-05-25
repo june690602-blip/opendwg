@@ -1,0 +1,3 @@
+[submodule "app/src/main/cpp/libredwg"]
+	path = app/src/main/cpp/libredwg
+	url = https://github.com/LibreDWG/libredwg.git
