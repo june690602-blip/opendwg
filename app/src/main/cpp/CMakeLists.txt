@@ -21,7 +21,9 @@ add_subdirectory(libredwg)
 add_library(dwgjni SHARED dwgjni.c)
 
 target_include_directories(dwgjni PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/libredwg/include)
+        ${CMAKE_CURRENT_SOURCE_DIR}/libredwg/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/libredwg/src
+        ${CMAKE_CURRENT_BINARY_DIR}/libredwg/src)
 
 find_library(log-lib log)
 # LibreDWG's CMake library target is named "redwg" on non-Windows platforms.
