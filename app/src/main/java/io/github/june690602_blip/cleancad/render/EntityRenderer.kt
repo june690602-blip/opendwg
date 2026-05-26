@@ -19,6 +19,11 @@ class EntityRenderer {
         textSize = 14f
     }
 
+    fun setColors(bgColor: Int, lineColor: Int) {
+        linePaint.color = lineColor
+        textPaint.color = lineColor
+    }
+
     /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다. */
     fun drawAll(entities: List<DxfEntity>, canvas: Canvas, matrix: Matrix) {
         // 1단계: 선 계열 (텍스트 제외)

@@ -1,6 +1,7 @@
 package io.github.june690602_blip.cleancad.render
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
@@ -81,8 +82,13 @@ class DrawingView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(Color.WHITE)
+        val nightMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val bgColor   = if (nightMode) Color.parseColor("#1C1C1E") else Color.WHITE
+        val lineColor = if (nightMode) Color.parseColor("#E0E0E0") else Color.BLACK
+        canvas.drawColor(bgColor)
         val d = drawing ?: return
+        renderer.setColors(bgColor, lineColor)
         renderer.drawAll(d.entities, canvas, matrix)
     }
 }
