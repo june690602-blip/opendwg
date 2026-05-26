@@ -45,7 +45,8 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                     val rc = NativeDwg.nativeDwgToDxf(dwgFile.absolutePath, dxfFile.absolutePath)
                     if (rc != 0) throw RuntimeException("DWG 변환 실패 (코드: $rc)")
 
-                    val drawing = DxfParser.parse(dxfFile.readText())
+                    // readText() 대신 BufferedReader 스트리밍으로 OOM 방지
+                    val drawing = dxfFile.bufferedReader().use { DxfParser.parse(it) }
                     Triple(drawing, displayName, uri)
                 }
             }

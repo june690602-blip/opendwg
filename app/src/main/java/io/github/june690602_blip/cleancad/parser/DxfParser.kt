@@ -1,31 +1,116 @@
 package io.github.june690602_blip.cleancad.parser
 
 import io.github.june690602_blip.cleancad.model.*
+import java.io.BufferedReader
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.PI
 
 object DxfParser {
 
-    fun parse(dxfContent: String): Drawing {
-        val reader = DxfReader(dxfContent)
+    /** 렌더링 성능을 보장하기 위한 최대 엔티티 수. 이 값을 초과하면 확장을 중단한다. */
+    private const val MAX_ENTITIES = 50_000
+
+    /**
+     * 스트리밍 진입점 — 대용량 DXF 파일에 적합.
+     * [BufferedReader]를 직접 받아 전체 파일을 메모리에 올리지 않는다.
+     */
+    fun parse(input: BufferedReader): Drawing {
+        val reader = DxfReader(input)
         val layers = mutableListOf<Layer>()
-        val entities = mutableListOf<DxfEntity>()
+        val rawEntities = mutableListOf<DxfEntity>()
+        val blockDefs = mutableMapOf<String, MutableList<DxfEntity>>()
 
         while (reader.hasNext()) {
             val gc = reader.next()
             if (gc.code == 0 && gc.value == "SECTION") {
                 val name = reader.next()
                 when (name.value) {
-                    "TABLES" -> parseTables(reader, layers)
-                    "ENTITIES" -> parseEntities(reader, entities)
-                    else -> skipSection(reader)
+                    "TABLES"   -> parseTables(reader, layers)
+                    "BLOCKS"   -> parseAllBlockDefs(reader, blockDefs)
+                    "ENTITIES" -> parseEntities(reader, rawEntities)
+                    else       -> skipSection(reader)
                 }
             }
         }
+
+        // INSERT 블록 참조를 실제 지오메트리로 펼친다 (최대 5단계 깊이, MAX_ENTITIES 상한)
+        val count = intArrayOf(0)
+        val entities = expandEntities(rawEntities, blockDefs, depth = 0, count = count)
 
         return Drawing(
             entities = entities,
             layers = layers,
             extents = calculateBoundingBox(entities)
         )
+    }
+
+    /**
+     * 문자열 진입점 — 단위 테스트 및 소형 DXF 문자열 전용.
+     * 대용량 파일에는 [parse(BufferedReader)]를 사용할 것.
+     */
+    fun parse(dxfContent: String): Drawing = dxfContent.reader().buffered().use { parse(it) }
+
+    // ---- INSERT 블록 확장 ----
+
+    /**
+     * INSERT 엔티티를 재귀적으로 실제 지오메트리로 펼친다.
+     * [count]는 누적 엔티티 수를 추적하는 공유 카운터 (IntArray(1)).
+     * [MAX_ENTITIES] 도달 시 확장을 조기 종료하여 ANR/OOM을 방지한다.
+     */
+    private fun expandEntities(
+        list: List<DxfEntity>,
+        defs: Map<String, List<DxfEntity>>,
+        depth: Int,
+        count: IntArray
+    ): List<DxfEntity> {
+        if (depth > 5 || count[0] >= MAX_ENTITIES) return emptyList()
+        val result = mutableListOf<DxfEntity>()
+        for (e in list) {
+            if (count[0] >= MAX_ENTITIES) break
+            if (e is DxfInsert) {
+                val blockEntities = defs[e.blockName]
+                if (blockEntities == null) {
+                    // 블록 정의 없음 → INSERT 원본 유지 (레거시 파일 호환)
+                    result.add(e)
+                    count[0]++
+                } else {
+                    val transformed = blockEntities.mapNotNull { child ->
+                        transformEntity(child, e)
+                    }
+                    result.addAll(expandEntities(transformed, defs, depth + 1, count))
+                }
+            } else {
+                result.add(e)
+                count[0]++
+            }
+        }
+        return result
+    }
+
+    private fun transformEntity(e: DxfEntity, ins: DxfInsert): DxfEntity? {
+        fun tp(pt: Vec2): Vec2 {
+            val rad = ins.rotationDeg * PI / 180.0
+            val c = cos(rad); val s = sin(rad)
+            val sx = pt.x * ins.scaleX; val sy = pt.y * ins.scaleY
+            return Vec2(ins.insertionPoint.x + sx * c - sy * s,
+                        ins.insertionPoint.y + sx * s + sy * c)
+        }
+        return when (e) {
+            is DxfLine       -> e.copy(start = tp(e.start), end = tp(e.end))
+            is DxfCircle     -> e.copy(center = tp(e.center))
+            is DxfArc        -> e.copy(center = tp(e.center))
+            is DxfLwPolyline -> e.copy(vertices = e.vertices.map { tp(it) })
+            is DxfEllipse    -> e.copy(center = tp(e.center))
+            is DxfSpline     -> e.copy(controlPoints = e.controlPoints.map { tp(it) })
+            is DxfText       -> e.copy(insertionPoint = tp(e.insertionPoint))
+            is DxfMText      -> e.copy(insertionPoint = tp(e.insertionPoint))
+            is DxfInsert     -> e.copy(insertionPoint = tp(e.insertionPoint))
+            is DxfDimension  -> e.copy(definitionPoint = tp(e.definitionPoint),
+                                       textMidPoint   = tp(e.textMidPoint))
+            is DxfLeader     -> e.copy(vertices = e.vertices.map { tp(it) })
+            is DxfHatch, is DxfUnknown -> null
+        }
     }
 
     // ---- 섹션 파싱 ----
@@ -83,6 +168,45 @@ object DxfParser {
         while (reader.hasNext()) {
             val gc = reader.next()
             if (gc.code == 0 && gc.value == token) return
+        }
+    }
+
+    // BLOCKS 섹션을 파싱해 모든 명명 블록 정의를 수집한다.
+    // *Model_Space, *Paper_Space 등 특수 블록(* 접두어)은 제외한다.
+    private fun parseAllBlockDefs(
+        reader: DxfReader,
+        defs: MutableMap<String, MutableList<DxfEntity>>
+    ) {
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break
+            if (gc.code == 0 && gc.value == "ENDSEC") { reader.next(); return }
+            val next = reader.next()
+            if (next.code == 0 && next.value == "BLOCK") {
+                // 블록 헤더에서 이름(그룹코드 2) 읽기
+                var blockName = ""
+                while (reader.hasNext()) {
+                    val hdr = reader.peek() ?: break
+                    if (hdr.code == 0) break
+                    val h = reader.next()
+                    if (h.code == 2) blockName = h.value
+                }
+                val isSpecial = blockName.startsWith("*", ignoreCase = false)
+                val blockEntities: MutableList<DxfEntity>? = if (!isSpecial) mutableListOf() else null
+                // 블록 본문 파싱
+                while (reader.hasNext()) {
+                    val body = reader.peek() ?: break
+                    if (body.code == 0 && body.value == "ENDBLK") { reader.next(); break }
+                    val b = reader.next()
+                    if (b.code == 0) {
+                        val entity = parseEntity(b.value, reader)
+                        if (blockEntities != null && entity != null) blockEntities.add(entity)
+                        else if (blockEntities == null) { /* special block — entities already skipped by parseEntity */ }
+                    }
+                }
+                if (blockEntities != null && blockName.isNotEmpty()) {
+                    defs[blockName] = blockEntities
+                }
+            }
         }
     }
 
