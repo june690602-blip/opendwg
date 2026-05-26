@@ -19,6 +19,8 @@ class EntityRenderer {
         textSize = 14f
     }
 
+    /** bgColor is reserved for future fill-color support (e.g., HATCH in Phase 6). */
+    @Suppress("UNUSED_PARAMETER")
     fun setColors(bgColor: Int, lineColor: Int) {
         linePaint.color = lineColor
         textPaint.color = lineColor
