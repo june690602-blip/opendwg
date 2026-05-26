@@ -39,6 +39,7 @@ object CoordTransform {
     /**
      * 현재 스케일 (항상 양수).
      * Y 스케일은 음수이므로 X 스케일 값을 사용한다.
+     * 균일 스케일링(postScale(s, s, ...))만 사용한다고 가정한다.
      */
     fun currentScale(matrix: Matrix): Float {
         val v = FloatArray(9)

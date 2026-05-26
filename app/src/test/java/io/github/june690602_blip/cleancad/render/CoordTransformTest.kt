@@ -57,4 +57,14 @@ class CoordTransformTest {
         assertEquals(expectedX, pt.x, 1f)
         assertEquals(expectedY, pt.y, 1f)
     }
+
+    @Test
+    fun `fitMatrix handles non-origin bounding box`() {
+        val box = BoundingBox(10.0, 20.0, 110.0, 120.0)
+        val matrix = CoordTransform.fitMatrix(box, 400, 400)
+        // 박스 중심 (60, 70)이 뷰 중심 (200, 200)에 매핑돼야 함
+        val pt = CoordTransform.worldToScreen(60.0, 70.0, matrix)
+        assertEquals(200f, pt.x, 1f)
+        assertEquals(200f, pt.y, 1f)
+    }
 }
