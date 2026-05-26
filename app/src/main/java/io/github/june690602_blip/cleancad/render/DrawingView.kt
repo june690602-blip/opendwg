@@ -64,7 +64,7 @@ class DrawingView @JvmOverloads constructor(
 
     /** 화면에 도면 전체가 들어오도록 Matrix를 초기화한다. */
     fun fitToScreen() {
-        val box = drawing?.extents ?: return
+        val box = drawing?.displayExtents ?: drawing?.extents ?: return
         if (width <= 0 || height <= 0) return
         matrix = CoordTransform.fitMatrix(box, width, height)
         invalidate()
@@ -89,6 +89,7 @@ class DrawingView @JvmOverloads constructor(
         canvas.drawColor(bgColor)
         val d = drawing ?: return
         renderer.setColors(bgColor, lineColor)
-        renderer.drawAll(d.entities, canvas, matrix)
+        val viewport = CoordTransform.screenToWorldBounds(width, height, matrix)
+        renderer.drawAll(d.entities, canvas, matrix, viewport)
     }
 }

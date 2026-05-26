@@ -3,6 +3,7 @@ package io.github.june690602_blip.cleancad.render
 import android.graphics.*
 import io.github.june690602_blip.cleancad.model.*
 import kotlin.math.*
+import io.github.june690602_blip.cleancad.model.BoundingBox
 
 class EntityRenderer {
 
@@ -27,12 +28,16 @@ class EntityRenderer {
     }
 
     /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다. */
-    fun drawAll(entities: List<DxfEntity>, canvas: Canvas, matrix: Matrix) {
-        // 1단계: 선 계열 (텍스트 제외)
+    fun drawAll(entities: List<DxfEntity>, canvas: Canvas, matrix: Matrix,
+                viewport: BoundingBox? = null) {
         entities.forEach { entity ->
-            if (entity !is DxfText && entity !is DxfMText) draw(entity, canvas, matrix)
+            if (entity !is DxfText && entity !is DxfMText) {
+                val bounds = entity.worldBounds()
+                if (bounds == null || viewport == null || bounds.intersects(viewport)) {
+                    draw(entity, canvas, matrix)
+                }
+            }
         }
-        // 2단계: 텍스트 (맨 위)
         entities.forEach { entity ->
             if (entity is DxfText || entity is DxfMText) draw(entity, canvas, matrix)
         }

@@ -8,6 +8,16 @@ import kotlin.math.PI
 
 object DxfParser {
 
+    private fun decodeDxfText(raw: String): String = raw
+        .replace(Regex("%%[Dd]"), "°")
+        .replace(Regex("%%[Pp]"), "±")
+        .replace(Regex("%%[Cc]"), "⌀")
+        .replace(Regex("%%[Uu]"), "")
+        .replace(Regex("%%[Oo]"), "")
+        .replace(Regex("%%([0-9]{3})")) { mr ->
+            mr.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: mr.value
+        }
+
     /** 렌더링 성능을 보장하기 위한 최대 엔티티 수. 이 값을 초과하면 확장을 중단한다. */
     private const val MAX_ENTITIES = 50_000
 
@@ -41,7 +51,8 @@ object DxfParser {
         return Drawing(
             entities = entities,
             layers = layers,
-            extents = calculateBoundingBox(entities)
+            extents = calculateBoundingBox(entities),
+            displayExtents = trimmedBoundingBox(entities)
         )
     }
 
@@ -366,7 +377,7 @@ object DxfParser {
                 50 -> rotation = next.value.toDouble()
             }
         }
-        return DxfText(layer, Vec2(x, y), height, text, rotation)
+        return DxfText(layer, Vec2(x, y), height, decodeDxfText(text), rotation)
     }
 
     private fun parseMText(reader: DxfReader): DxfMText {
@@ -384,7 +395,7 @@ object DxfParser {
                 50    -> rotation = next.value.toDouble()
             }
         }
-        return DxfMText(layer, Vec2(x, y), height, textParts.joinToString(""), rotation)
+        return DxfMText(layer, Vec2(x, y), height, decodeDxfText(textParts.joinToString("")), rotation)
     }
 
     private fun parseInsert(reader: DxfReader): DxfInsert {
@@ -456,7 +467,7 @@ object DxfParser {
 
     // ---- BoundingBox ----
 
-    private fun calculateBoundingBox(entities: List<DxfEntity>): BoundingBox? {
+    private fun collectBoundingPoints(entities: List<DxfEntity>): List<Vec2> {
         val points = mutableListOf<Vec2>()
         for (entity in entities) {
             when (entity) {
@@ -478,10 +489,26 @@ object DxfParser {
                 is DxfHatch, is DxfUnknown -> {}
             }
         }
+        return points
+    }
+
+    private fun calculateBoundingBox(entities: List<DxfEntity>): BoundingBox? {
+        val points = collectBoundingPoints(entities)
         if (points.isEmpty()) return null
         return BoundingBox(
             minX = points.minOf { it.x }, minY = points.minOf { it.y },
             maxX = points.maxOf { it.x }, maxY = points.maxOf { it.y }
         )
+    }
+
+    private fun trimmedBoundingBox(entities: List<DxfEntity>, trimRatio: Double = 0.05): BoundingBox? {
+        val points = collectBoundingPoints(entities)
+        if (points.size < 4) return calculateBoundingBox(entities)
+        val xs = points.map { it.x }.sorted()
+        val ys = points.map { it.y }.sorted()
+        val lo = (points.size * trimRatio).toInt().coerceAtLeast(0)
+        val hi = (points.size * (1 - trimRatio)).toInt().coerceAtMost(points.size - 1)
+        if (lo >= hi) return calculateBoundingBox(entities)
+        return BoundingBox(xs[lo], ys[lo], xs[hi], ys[hi])
     }
 }

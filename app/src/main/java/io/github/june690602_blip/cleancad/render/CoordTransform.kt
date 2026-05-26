@@ -47,4 +47,15 @@ object CoordTransform {
         matrix.getValues(v)
         return v[Matrix.MSCALE_X]
     }
+
+    fun screenToWorldBounds(screenW: Int, screenH: Int, matrix: Matrix): BoundingBox {
+        val inv = Matrix()
+        matrix.invert(inv)
+        val pts = floatArrayOf(0f, 0f, screenW.toFloat(), screenH.toFloat())
+        inv.mapPoints(pts)
+        return BoundingBox(
+            minOf(pts[0], pts[2]).toDouble(), minOf(pts[1], pts[3]).toDouble(),
+            maxOf(pts[0], pts[2]).toDouble(), maxOf(pts[1], pts[3]).toDouble()
+        )
+    }
 }

@@ -52,6 +52,11 @@
             android:label="@string/settings"
             android:exported="false" />
 
+        <activity
+            android:name=".ui.AboutActivity"
+            android:label="@string/about"
+            android:exported="false" />
+
     </application>
 
 </manifest>

@@ -14,4 +14,9 @@
     <string name="settings_about_title">앱 정보</string>
     <string name="settings_version">버전 %s</string>
     <string name="settings_license">라이선스: GPL v3 — 소스코드 https://github.com/june690602-blip/opendwg</string>
+    <string name="about">앱 정보</string>
+    <string name="about_open_source">오픈소스 소프트웨어</string>
+    <string name="about_libredwg">LibreDWG © Free Software Foundation, GPL v3</string>
+    <string name="about_license">이 앱은 GPL v3 라이선스로 배포됩니다.</string>
+    <string name="about_source_link">소스코드: https://github.com/june690602-blip/opendwg</string>
 </resources>

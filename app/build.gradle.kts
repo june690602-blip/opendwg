@@ -31,8 +31,18 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "../cleancad-release.jks")
+            storePassword = System.getenv("KEYSTORE_PASS") ?: ""
+            keyAlias = System.getenv("KEY_ALIAS") ?: "cleancad"
+            keyPassword = System.getenv("KEY_PASS") ?: ""
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

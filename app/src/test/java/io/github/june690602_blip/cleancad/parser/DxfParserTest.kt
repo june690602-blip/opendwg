@@ -530,4 +530,51 @@ LINE
         val dxf = "  0\nSECTION\n  2\nENTITIES\n  0\nENDSEC\n  0\nEOF"
         assertNull(DxfParser.parse(dxf).extents)
     }
+
+    // ---- %% 이스케이프 코드 ----
+
+    @Test
+    fun parseText_percentEscapeDegree() {
+        val dxf = withEntities("  0\nTEXT\n 10\n0.0\n 20\n0.0\n 40\n2.5\n  1\n45%%D")
+        val text = DxfParser.parse(dxf).entities[0] as DxfText
+        assertEquals("45°", text.text)
+    }
+
+    @Test
+    fun parseText_percentEscapeDiameter() {
+        val dxf = withEntities("  0\nTEXT\n 10\n0.0\n 20\n0.0\n 40\n2.5\n  1\n%%C100")
+        val text = DxfParser.parse(dxf).entities[0] as DxfText
+        assertEquals("⌀100", text.text)
+    }
+
+    @Test
+    fun parseText_percentEscapePlusMinus() {
+        val dxf = withEntities("  0\nTEXT\n 10\n0.0\n 20\n0.0\n 40\n2.5\n  1\n%%P0.5")
+        val text = DxfParser.parse(dxf).entities[0] as DxfText
+        assertEquals("±0.5", text.text)
+    }
+
+    @Test
+    fun parseText_percentEscapeFormatting() {
+        val dxf = withEntities("  0\nTEXT\n 10\n0.0\n 20\n0.0\n 40\n2.5\n  1\n%%Uhello%%U")
+        val text = DxfParser.parse(dxf).entities[0] as DxfText
+        assertEquals("hello", text.text)
+    }
+
+    // ---- displayExtents (아웃라이어 필터링) ----
+
+    @Test
+    fun trimmedBoundingBox_ignoresOutliers() {
+        // 정상 범위(0~10) 점 여러 개 + 아웃라이어(9999) 1개
+        val lines = buildString {
+            for (i in 0 until 20) {
+                appendLine("  0\nLINE\n 10\n${i * 0.5}\n 20\n${i * 0.5}\n 11\n${i * 0.5 + 0.1}\n 21\n${i * 0.5 + 0.1}")
+            }
+            appendLine("  0\nLINE\n 10\n9999.0\n 20\n9999.0\n 11\n9999.1\n 21\n9999.1")
+        }
+        val drawing = DxfParser.parse(withEntities(lines.trimEnd()))
+        val box = drawing.displayExtents!!
+        assertTrue("maxX should be < 100 but was ${box.maxX}", box.maxX < 100.0)
+        assertTrue("maxY should be < 100 but was ${box.maxY}", box.maxY < 100.0)
+    }
 }

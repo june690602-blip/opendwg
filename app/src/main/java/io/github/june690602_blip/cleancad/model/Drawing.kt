@@ -18,5 +18,6 @@ data class Layer(
 data class Drawing(
     val entities: List<DxfEntity>,
     val layers: List<Layer>,
-    val extents: BoundingBox?
+    val extents: BoundingBox?,
+    val displayExtents: BoundingBox?
 )

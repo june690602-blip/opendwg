@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import io.github.june690602_blip.cleancad.ui.RecentFilesManager
+import io.github.june690602_blip.cleancad.ui.AboutActivity
 import io.github.june690602_blip.cleancad.ui.SettingsActivity
 import io.github.june690602_blip.cleancad.ui.ViewerActivity
 
@@ -45,6 +46,10 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_settings -> {
                 startActivity(Intent(this, SettingsActivity::class.java))
+                true
+            }
+            R.id.action_about -> {
+                startActivity(Intent(this, AboutActivity::class.java))
                 true
             }
             else -> super.onOptionsItemSelected(item)

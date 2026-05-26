@@ -15,13 +15,18 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 2 plan: `docs/superpowers/plans/2026-05-25-phase2-libredwg-ndk.md`
 
 ## Status (2026-05-27)
-- Phase 0–5 전부 완료. 단위 테스트 30개 통과. 실제 DWG 2종 렌더링 확인.
+- Phase 0–6 전부 완료. 단위 테스트 38개 통과. 실제 DWG 2종 렌더링 확인.
+- **Phase 6 완료**: 렌더링 품질 개선 + Play Store 출시 준비.
+  - `%%D/C/P/U/O` 이스케이프 코드 → 유니코드 변환 (°, ⌀, ±)
+  - Fit-to-Screen 아웃라이어 필터링 (`displayExtents`, trimRatio=5%)
+  - 뷰포트 컬링 — 화면 밖 엔티티 스킵으로 렌더 성능 개선
+  - About 화면 — GPL v3 고지, LibreDWG 저작권 표시
+  - 릴리즈 서명 설정 (환경변수 기반, keystore 미커밋)
+  스펙: `docs/superpowers/specs/2026-05-27-phase6-rendering-and-release.md`
 - **Phase 5 완료**: 다크모드, 설정, 최근파일, Share/View Intent, Toolbar 버그 수정.
 - **핫픽스 완료** (`edb41ca`): DxfReader 스트리밍(OOM 방지) + MAX_ENTITIES=50,000(ANR 방지)
   + INSERT 블록 확장(`expandEntities`) — 13MB DWG 파일 정상 렌더링.
-- **Next = Phase 6**: 렌더링 품질 개선 + Play Store 출시 준비.
-  플랜: `docs/superpowers/plans/2026-05-27-phase6-plan.md`
-  스펙: `docs/superpowers/specs/2026-05-27-phase6-rendering-and-release.md`
+- **Next = Play Store 출시**: keystore 생성 후 `assembleRelease` → Google Play Console 업로드.
 
 ## Build & test
 - After clone, init the submodule: `git submodule update --init --recursive`
