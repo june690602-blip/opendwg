@@ -3,6 +3,7 @@ package io.github.june690602_blip.cleancad.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -50,6 +51,13 @@ class ViewerActivity : AppCompatActivity() {
         showLoading()
         lifecycleScope.launch(Dispatchers.IO) {
             val result = runCatching {
+                // 0. 파일 표시 이름: OpenableColumns 우선, fallback = lastPathSegment
+                val displayName = contentResolver.query(
+                    uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                } ?: uri.lastPathSegment ?: uri.toString()
+
                 // 1. content URI → 캐시 파일 (JNI는 실제 파일 경로 필요)
                 val dwgFile = File(cacheDir, "current.dwg")
                 val stream = contentResolver.openInputStream(uri)
@@ -63,20 +71,19 @@ class ViewerActivity : AppCompatActivity() {
 
                 // 3. DXF 파싱 → Drawing 모델
                 val dxfContent = dxfFile.readText()
-                DxfParser.parse(dxfContent)
+                Pair(DxfParser.parse(dxfContent), displayName)
             }
 
             withContext(Dispatchers.Main) {
                 result.fold(
-                    onSuccess = { drawing ->
+                    onSuccess = { (drawing, displayName) ->
                         // SAF URI 퍼미션 영구 보존 — 없으면 앱 재시작 시 SecurityException
                         runCatching {
                             contentResolver.takePersistableUriPermission(
                                 uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                             )
                         }
-                        val name = uri.lastPathSegment ?: uri.toString()
-                        RecentFilesManager(this@ViewerActivity).add(uri.toString(), name)
+                        RecentFilesManager(this@ViewerActivity).add(uri.toString(), displayName)
                         showDrawing()
                         drawingView.setDrawing(drawing)
                     },
