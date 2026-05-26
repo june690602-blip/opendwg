@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">CleanCAD Viewer</string>
+    <string name="open_file">DWG 파일 열기</string>
+    <string name="recent_files">최근 파일</string>
+    <string name="no_recent_files">최근 파일이 없습니다</string>
+    <string name="loading">도면 불러오는 중…</string>
+    <string name="error_prefix">열기 실패: </string>
+    <string name="fit_to_screen">화면 맞춤</string>
 </resources>
