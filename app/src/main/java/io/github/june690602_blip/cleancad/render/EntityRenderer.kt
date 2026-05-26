@@ -107,7 +107,7 @@ class EntityRenderer {
         val path = Path()
         val first = CoordTransform.worldToScreen(e.controlPoints[0], matrix)
         path.moveTo(first.x, first.y)
-        // 제어점 폴리라인으로 근사 (B-스플라인 근사)
+        // 제어점 폴리라인 (B-스플라인 미근사 MVP)
         for (i in 1 until e.controlPoints.size) {
             val pt = CoordTransform.worldToScreen(e.controlPoints[i], matrix)
             path.lineTo(pt.x, pt.y)
@@ -148,7 +148,8 @@ class EntityRenderer {
         val tp = CoordTransform.worldToScreen(e.textMidPoint, matrix)
         canvas.drawLine(dp.x, dp.y, tp.x, tp.y, linePaint)
         if (e.textOverride.isNotBlank()) {
-            textPaint.textSize = 12f
+            // drawText/drawMText와 동일하게 scale-aware 크기 적용 (기본 높이 2.5 월드 단위 기준)
+            textPaint.textSize = (2.5 * CoordTransform.currentScale(matrix)).toFloat().coerceAtLeast(8f)
             canvas.drawText(e.textOverride, tp.x, tp.y, textPaint)
         }
     }
