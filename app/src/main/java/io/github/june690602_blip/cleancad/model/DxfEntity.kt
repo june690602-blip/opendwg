@@ -32,6 +32,12 @@ data class DxfLwPolyline(
     val closed: Boolean
 ) : DxfEntity()
 
+data class DxfPolyline(
+    override val layer: String,
+    val vertices: List<Vec2>,
+    val closed: Boolean
+) : DxfEntity()
+
 data class DxfEllipse(
     override val layer: String,
     val center: Vec2,

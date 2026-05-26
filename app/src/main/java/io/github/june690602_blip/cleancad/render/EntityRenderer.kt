@@ -67,6 +67,7 @@ class EntityRenderer {
             is DxfCircle     -> drawCircle(entity, canvas, matrix)
             is DxfArc        -> drawArc(entity, canvas, matrix)
             is DxfLwPolyline -> drawLwPolyline(entity, canvas, matrix)
+            is DxfPolyline   -> drawPolyline(entity, canvas, matrix)
             is DxfEllipse    -> drawEllipse(entity, canvas, matrix)
             is DxfSpline     -> drawSpline(entity, canvas, matrix)
             is DxfText       -> drawText(entity, canvas, matrix)
@@ -100,6 +101,19 @@ class EntityRenderer {
     }
 
     private fun drawLwPolyline(e: DxfLwPolyline, canvas: Canvas, matrix: Matrix) {
+        if (e.vertices.size < 2) return
+        val path = Path()
+        val first = CoordTransform.worldToScreen(e.vertices[0], matrix)
+        path.moveTo(first.x, first.y)
+        for (i in 1 until e.vertices.size) {
+            val pt = CoordTransform.worldToScreen(e.vertices[i], matrix)
+            path.lineTo(pt.x, pt.y)
+        }
+        if (e.closed) path.close()
+        canvas.drawPath(path, linePaint)
+    }
+
+    private fun drawPolyline(e: DxfPolyline, canvas: Canvas, matrix: Matrix) {
         if (e.vertices.size < 2) return
         val path = Path()
         val first = CoordTransform.worldToScreen(e.vertices[0], matrix)

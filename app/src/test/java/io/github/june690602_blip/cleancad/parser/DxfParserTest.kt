@@ -561,6 +561,82 @@ LINE
         assertEquals("hello", text.text)
     }
 
+    // ---- POLYLINE (구형식) ----
+
+    @Test
+    fun parsePolyline_extractsVerticesUntilSeqEnd() {
+        val dxf = withEntities("""
+  0
+POLYLINE
+  8
+walls
+ 66
+1
+ 70
+0
+  0
+VERTEX
+  8
+walls
+ 10
+0.0
+ 20
+0.0
+  0
+VERTEX
+  8
+walls
+ 10
+10.0
+ 20
+0.0
+  0
+VERTEX
+  8
+walls
+ 10
+10.0
+ 20
+5.0
+  0
+SEQEND""".trimIndent())
+
+        val drawing = DxfParser.parse(dxf)
+        assertEquals(1, drawing.entities.size)
+        val poly = drawing.entities[0] as DxfPolyline
+        assertEquals("walls", poly.layer)
+        assertEquals(3, poly.vertices.size)
+        assertEquals(Vec2(0.0, 0.0), poly.vertices[0])
+        assertEquals(Vec2(10.0, 0.0), poly.vertices[1])
+        assertEquals(Vec2(10.0, 5.0), poly.vertices[2])
+        assertFalse(poly.closed)
+    }
+
+    @Test
+    fun parsePolyline_closedFlag() {
+        val dxf = withEntities("""
+  0
+POLYLINE
+ 70
+1
+  0
+VERTEX
+ 10
+0.0
+ 20
+0.0
+  0
+VERTEX
+ 10
+1.0
+ 20
+0.0
+  0
+SEQEND""".trimIndent())
+        val poly = DxfParser.parse(dxf).entities[0] as DxfPolyline
+        assertTrue(poly.closed)
+    }
+
     // ---- displayExtents (아웃라이어 필터링) ----
 
     @Test

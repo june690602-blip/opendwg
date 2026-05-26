@@ -19,6 +19,10 @@ fun DxfEntity.worldBounds(): BoundingBox? = when (this) {
         vertices.minOf { it.x }, vertices.minOf { it.y },
         vertices.maxOf { it.x }, vertices.maxOf { it.y }
     )
+    is DxfPolyline   -> if (vertices.isEmpty()) null else BoundingBox(
+        vertices.minOf { it.x }, vertices.minOf { it.y },
+        vertices.maxOf { it.x }, vertices.maxOf { it.y }
+    )
     else -> null
 }
 

@@ -112,6 +112,7 @@ object DxfParser {
             is DxfCircle     -> e.copy(center = tp(e.center))
             is DxfArc        -> e.copy(center = tp(e.center))
             is DxfLwPolyline -> e.copy(vertices = e.vertices.map { tp(it) })
+            is DxfPolyline   -> e.copy(vertices = e.vertices.map { tp(it) })
             is DxfEllipse    -> e.copy(center = tp(e.center))
             is DxfSpline     -> e.copy(controlPoints = e.controlPoints.map { tp(it) })
             is DxfText       -> e.copy(insertionPoint = tp(e.insertionPoint))
@@ -237,6 +238,7 @@ object DxfParser {
         "CIRCLE"     -> parseCircle(reader)
         "ARC"        -> parseArc(reader)
         "LWPOLYLINE" -> parseLwPolyline(reader)
+        "POLYLINE"   -> parsePolyline(reader)
         "ELLIPSE"    -> parseEllipse(reader)
         "SPLINE"     -> parseSpline(reader)
         "TEXT"       -> parseText(reader)
@@ -322,6 +324,59 @@ object DxfParser {
             }
         }
         return DxfLwPolyline(layer, vertices, closed)
+    }
+
+    private fun parsePolyline(reader: DxfReader): DxfPolyline {
+        var layer = "0"
+        var closed = false
+        val vertices = mutableListOf<Vec2>()
+
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break
+            if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                70 -> closed = (next.value.toIntOrNull() ?: 0) and 1 != 0
+            }
+        }
+
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break
+            if (gc.code != 0) { reader.next(); continue }
+            val typeGc = reader.next()
+            when (typeGc.value) {
+                "VERTEX" -> {
+                    var vx = 0.0; var vy = 0.0
+                    while (reader.hasNext()) {
+                        val v = reader.peek() ?: break
+                        if (v.code == 0) break
+                        val nv = reader.next()
+                        when (nv.code) {
+                            10 -> vx = nv.value.toDouble()
+                            20 -> vy = nv.value.toDouble()
+                        }
+                    }
+                    vertices.add(Vec2(vx, vy))
+                }
+                "SEQEND" -> {
+                    while (reader.hasNext()) {
+                        val s = reader.peek() ?: break
+                        if (s.code == 0) break
+                        reader.next()
+                    }
+                    return DxfPolyline(layer, vertices, closed)
+                }
+                else -> {
+                    while (reader.hasNext()) {
+                        val s = reader.peek() ?: break
+                        if (s.code == 0) break
+                        reader.next()
+                    }
+                }
+            }
+        }
+        return DxfPolyline(layer, vertices, closed)
     }
 
     private fun parseEllipse(reader: DxfReader): DxfEllipse {
@@ -477,6 +532,7 @@ object DxfParser {
                 is DxfArc        -> { val r = entity.radius; val c = entity.center
                                       points.add(Vec2(c.x - r, c.y - r)); points.add(Vec2(c.x + r, c.y + r)) }
                 is DxfLwPolyline -> points.addAll(entity.vertices)
+                is DxfPolyline   -> points.addAll(entity.vertices)
                 is DxfEllipse    -> { val len = Math.hypot(entity.majorAxis.x, entity.majorAxis.y)
                                       val c = entity.center
                                       points.add(Vec2(c.x - len, c.y - len)); points.add(Vec2(c.x + len, c.y + len)) }
