@@ -6,4 +6,12 @@
     <string name="loading">도면 불러오는 중…</string>
     <string name="error_prefix">열기 실패: </string>
     <string name="fit_to_screen">화면 맞춤</string>
+    <string name="settings">설정</string>
+    <string name="settings_dark_mode_title">다크모드</string>
+    <string name="settings_theme_system">시스템 설정 따라가기</string>
+    <string name="settings_theme_light">라이트</string>
+    <string name="settings_theme_dark">다크</string>
+    <string name="settings_about_title">앱 정보</string>
+    <string name="settings_version">버전 %s</string>
+    <string name="settings_license">라이선스: GPL v3 — 소스코드 https://github.com/june690602-blip/opendwg</string>
 </resources>
