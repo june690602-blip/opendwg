@@ -14,12 +14,14 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Design spec — all decisions: `docs/superpowers/specs/2026-05-25-cleancad-viewer-design.md`
 - Phase 2 plan: `docs/superpowers/plans/2026-05-25-phase2-libredwg-ndk.md`
 
-## Status (2026-05-26)
-- Phase 0/1 done (skeleton builds).
-- **Phase 2 done**: LibreDWG cross-compiled for arm64-v8a / armeabi-v7a / x86_64,
-  JNI wrapper (`libdwgjni.so`) links LibreDWG and returns its version; tests pass.
-- **Next = Phase 3**: `dwgToDxf(inPath, outPath)` JNI + Kotlin DXF parser + Drawing model.
-  The design is already in the spec — go straight to writing a Phase 3 plan.
+## Status (2026-05-27)
+- Phase 0–5 전부 완료. 단위 테스트 30개 통과. 실제 DWG 2종 렌더링 확인.
+- **Phase 5 완료**: 다크모드, 설정, 최근파일, Share/View Intent, Toolbar 버그 수정.
+- **핫픽스 완료** (`edb41ca`): DxfReader 스트리밍(OOM 방지) + MAX_ENTITIES=50,000(ANR 방지)
+  + INSERT 블록 확장(`expandEntities`) — 13MB DWG 파일 정상 렌더링.
+- **Next = Phase 6**: 렌더링 품질 개선 + Play Store 출시 준비.
+  플랜: `docs/superpowers/plans/2026-05-27-phase6-plan.md`
+  스펙: `docs/superpowers/specs/2026-05-27-phase6-rendering-and-release.md`
 
 ## Build & test
 - After clone, init the submodule: `git submodule update --init --recursive`
