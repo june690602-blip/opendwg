@@ -3,7 +3,6 @@ package io.github.june690602_blip.cleancad.render
 import android.graphics.*
 import io.github.june690602_blip.cleancad.model.*
 import kotlin.math.*
-import io.github.june690602_blip.cleancad.model.BoundingBox
 
 class EntityRenderer {
 
@@ -20,16 +19,33 @@ class EntityRenderer {
         textSize = 14f
     }
 
-    /** bgColor is reserved for future fill-color support (e.g., HATCH in Phase 6). */
-    @Suppress("UNUSED_PARAMETER")
+    private var bgColor: Int = Color.WHITE
+    private var defaultLineColor: Int = Color.BLACK
+    private var layerColorMap: Map<String, Int> = emptyMap()
+
     fun setColors(bgColor: Int, lineColor: Int) {
+        this.bgColor = bgColor
+        this.defaultLineColor = lineColor
         linePaint.color = lineColor
         textPaint.color = lineColor
     }
 
+    fun setLayers(layers: List<Layer>) {
+        layerColorMap = layers.associate { layer ->
+            layer.name to AciColor.toArgb(layer.colorIndex, fallback = defaultLineColor)
+        }
+    }
+
+    private fun colorFor(entity: DxfEntity): Int =
+        layerColorMap[entity.layer] ?: defaultLineColor
+
     /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다. */
-    fun drawAll(entities: List<DxfEntity>, canvas: Canvas, matrix: Matrix,
-                viewport: BoundingBox? = null) {
+    fun drawAll(
+        entities: List<DxfEntity>,
+        canvas: Canvas,
+        matrix: Matrix,
+        viewport: BoundingBox? = null
+    ) {
         entities.forEach { entity ->
             if (entity !is DxfText && entity !is DxfMText) {
                 val bounds = entity.worldBounds()
@@ -44,6 +60,8 @@ class EntityRenderer {
     }
 
     private fun draw(entity: DxfEntity, canvas: Canvas, matrix: Matrix) {
+        linePaint.color = colorFor(entity)
+        textPaint.color = colorFor(entity)
         when (entity) {
             is DxfLine       -> drawLine(entity, canvas, matrix)
             is DxfCircle     -> drawCircle(entity, canvas, matrix)
@@ -75,8 +93,6 @@ class EntityRenderer {
         val c = CoordTransform.worldToScreen(e.center, matrix)
         val r = (e.radius * CoordTransform.currentScale(matrix)).toFloat()
         val oval = RectF(c.x - r, c.y - r, c.x + r, c.y + r)
-        // Y-flip: DXF CCW → screen CW
-        // startAngle = -endAngleDeg, sweep = endAngleDeg - startAngleDeg
         var sweep = (e.endAngleDeg - e.startAngleDeg).toFloat()
         if (sweep <= 0f) sweep += 360f
         val startAngle = (-e.endAngleDeg).toFloat()
@@ -97,7 +113,6 @@ class EntityRenderer {
     }
 
     private fun drawEllipse(e: DxfEllipse, canvas: Canvas, matrix: Matrix) {
-        // 72개 선분으로 근사
         val majorLen = sqrt(e.majorAxis.x * e.majorAxis.x + e.majorAxis.y * e.majorAxis.y)
         val minorLen = majorLen * e.minorRatio
         val rot = atan2(e.majorAxis.y, e.majorAxis.x)
@@ -119,7 +134,6 @@ class EntityRenderer {
         val path = Path()
         val first = CoordTransform.worldToScreen(e.controlPoints[0], matrix)
         path.moveTo(first.x, first.y)
-        // 제어점 폴리라인 (B-스플라인 미근사 MVP)
         for (i in 1 until e.controlPoints.size) {
             val pt = CoordTransform.worldToScreen(e.controlPoints[i], matrix)
             path.lineTo(pt.x, pt.y)
@@ -142,7 +156,6 @@ class EntityRenderer {
         val pt = CoordTransform.worldToScreen(e.insertionPoint, matrix)
         textPaint.textSize = (e.height * CoordTransform.currentScale(matrix)).toFloat()
             .coerceAtLeast(8f)
-        // MText 서식 코드 제거
         val stripped = e.text
             .replace(Regex("\\\\[A-Za-z][^;]*;"), "")
             .replace(Regex("\\\\[^A-Za-z]"), "")
@@ -160,7 +173,6 @@ class EntityRenderer {
         val tp = CoordTransform.worldToScreen(e.textMidPoint, matrix)
         canvas.drawLine(dp.x, dp.y, tp.x, tp.y, linePaint)
         if (e.textOverride.isNotBlank()) {
-            // drawText/drawMText와 동일하게 scale-aware 크기 적용 (기본 높이 2.5 월드 단위 기준)
             textPaint.textSize = (2.5 * CoordTransform.currentScale(matrix)).toFloat().coerceAtLeast(8f)
             canvas.drawText(e.textOverride, tp.x, tp.y, textPaint)
         }
