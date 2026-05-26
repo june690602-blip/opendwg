@@ -35,12 +35,13 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                         if (cursor.moveToFirst()) cursor.getString(0) else null
                     } ?: uri.lastPathSegment ?: uri.toString()
 
-                    val dwgFile = File(ctx.cacheDir, "current.dwg")
+                    val tag = uri.hashCode().toUInt().toString(16)
+                    val dwgFile = File(ctx.cacheDir, "dwg_$tag.dwg")
                     val stream = ctx.contentResolver.openInputStream(uri)
                         ?: throw IOException("파일을 열 수 없습니다: $uri")
                     stream.use { it.copyTo(dwgFile.outputStream()) }
 
-                    val dxfFile = File(ctx.cacheDir, "current.dxf")
+                    val dxfFile = File(ctx.cacheDir, "dwg_$tag.dxf")
                     val rc = NativeDwg.nativeDwgToDxf(dwgFile.absolutePath, dxfFile.absolutePath)
                     if (rc != 0) throw RuntimeException("DWG 변환 실패 (코드: $rc)")
 
