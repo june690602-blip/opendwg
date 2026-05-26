@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.appbar.MaterialToolbar
 import io.github.june690602_blip.cleancad.ui.RecentFilesManager
 import io.github.june690602_blip.cleancad.ui.SettingsActivity
 import io.github.june690602_blip.cleancad.ui.ViewerActivity
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        setSupportActionBar(findViewById<MaterialToolbar>(R.id.toolbar))
         findViewById<Button>(R.id.btn_open).setOnClickListener {
             openDoc.launch(arrayOf("*/*"))
         }
