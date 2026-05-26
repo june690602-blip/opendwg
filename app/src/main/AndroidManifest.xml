@@ -36,6 +36,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/x-dwg" />
             </intent-filter>
+            <!-- pathPattern only works for file:// URIs; content:// URIs (modern file managers)
+                 are caught by the MIME filters above. Kept for legacy file:// compatibility. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
