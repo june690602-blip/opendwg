@@ -27,7 +27,9 @@ class SettingsActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         val rgTheme = findViewById<RadioGroup>(R.id.rg_theme)
 
-        when (prefs.getString("night_mode", "system")) {
+        // Restore saved selection before attaching the listener to avoid a spurious recreate().
+        val savedMode = prefs.getString("night_mode", "system") ?: "system"
+        when (savedMode) {
             "light" -> findViewById<RadioButton>(R.id.rb_light).isChecked = true
             "dark"  -> findViewById<RadioButton>(R.id.rb_dark).isChecked = true
             else    -> findViewById<RadioButton>(R.id.rb_system).isChecked = true
@@ -39,6 +41,8 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.rb_dark  -> "dark"
                 else          -> "system"
             }
+            // Skip no-op: user tapped the already-selected option.
+            if (mode == prefs.getString("night_mode", "system")) return@setOnCheckedChangeListener
             prefs.edit().putString("night_mode", mode).apply()
             AppCompatDelegate.setDefaultNightMode(
                 when (mode) {
