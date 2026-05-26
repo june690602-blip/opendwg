@@ -1,5 +1,6 @@
 package io.github.june690602_blip.cleancad.ui
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -17,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 class ViewerActivity : AppCompatActivity() {
 
@@ -50,7 +52,9 @@ class ViewerActivity : AppCompatActivity() {
             val result = runCatching {
                 // 1. content URI → 캐시 파일 (JNI는 실제 파일 경로 필요)
                 val dwgFile = File(cacheDir, "current.dwg")
-                contentResolver.openInputStream(uri)!!.use { it.copyTo(dwgFile.outputStream()) }
+                val stream = contentResolver.openInputStream(uri)
+                    ?: throw IOException("파일을 열 수 없습니다: $uri")
+                stream.use { it.copyTo(dwgFile.outputStream()) }
 
                 // 2. JNI: DWG → DXF
                 val dxfFile = File(cacheDir, "current.dxf")
@@ -65,6 +69,12 @@ class ViewerActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { drawing ->
+                        // SAF URI 퍼미션 영구 보존 — 없으면 앱 재시작 시 SecurityException
+                        runCatching {
+                            contentResolver.takePersistableUriPermission(
+                                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        }
                         val name = uri.lastPathSegment ?: uri.toString()
                         RecentFilesManager(this@ViewerActivity).add(uri.toString(), name)
                         showDrawing()

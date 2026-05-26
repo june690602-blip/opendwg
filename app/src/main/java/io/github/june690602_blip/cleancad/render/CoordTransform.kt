@@ -13,6 +13,7 @@ object CoordTransform {
      * 5% 여백을 남긴다.
      */
     fun fitMatrix(box: BoundingBox, viewW: Int, viewH: Int): Matrix {
+        if (box.width <= 0.0 || box.height <= 0.0) return Matrix()
         val scale = minOf(viewW / box.width, viewH / box.height) * 0.95
         val tx = (viewW - box.width * scale) / 2.0 - box.minX * scale
         val ty = viewH - (viewH - box.height * scale) / 2.0 + box.minY * scale
