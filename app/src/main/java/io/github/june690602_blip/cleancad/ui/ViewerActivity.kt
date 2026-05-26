@@ -3,23 +3,21 @@ package io.github.june690602_blip.cleancad.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import io.github.june690602_blip.cleancad.NativeDwg
 import io.github.june690602_blip.cleancad.R
-import io.github.june690602_blip.cleancad.parser.DxfParser
 import io.github.june690602_blip.cleancad.render.DrawingView
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
 
 class ViewerActivity : AppCompatActivity() {
 
@@ -28,8 +26,10 @@ class ViewerActivity : AppCompatActivity() {
     private lateinit var tvError: TextView
     private lateinit var fabFit: FloatingActionButton
 
+    private val viewModel: DrawingViewModel by viewModels()
+
     private val openDoc = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) openFile(uri) else finish()
+        if (uri != null) viewModel.load(uri) else finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,58 +40,53 @@ class ViewerActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         tvError = findViewById(R.id.tv_error)
         fabFit = findViewById(R.id.fab_fit)
-
         fabFit.setOnClickListener { drawingView.fitToScreen() }
 
-        val uri = intent.data
-        if (uri != null) openFile(uri) else openDoc.launch(arrayOf("*/*"))
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collect { state ->
+                    when (state) {
+                        is DrawingState.Idle    -> { /* 초기 상태 */ }
+                        is DrawingState.Loading -> showLoading()
+                        is DrawingState.Success -> {
+                            runCatching {
+                                contentResolver.takePersistableUriPermission(
+                                    state.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                            }
+                            RecentFilesManager(this@ViewerActivity).add(
+                                state.uri.toString(), state.displayName
+                            )
+                            showDrawing()
+                            drawingView.setDrawing(state.drawing)
+                        }
+                        is DrawingState.Error -> {
+                            showError(getString(R.string.error_prefix) + state.message)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 회전 복귀 시 ViewModel이 이미 로드된 상태이면 재로드하지 않음
+        if (viewModel.state.value is DrawingState.Idle) {
+            val uri = intent.data
+            if (uri != null) viewModel.load(uri) else openDoc.launch(arrayOf("*/*"))
+        }
     }
 
-    private fun openFile(uri: Uri) {
-        showLoading()
-        lifecycleScope.launch(Dispatchers.IO) {
-            val result = runCatching {
-                // 0. 파일 표시 이름: OpenableColumns 우선, fallback = lastPathSegment
-                val displayName = contentResolver.query(
-                    uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                } ?: uri.lastPathSegment ?: uri.toString()
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
 
-                // 1. content URI → 캐시 파일 (JNI는 실제 파일 경로 필요)
-                val dwgFile = File(cacheDir, "current.dwg")
-                val stream = contentResolver.openInputStream(uri)
-                    ?: throw IOException("파일을 열 수 없습니다: $uri")
-                stream.use { it.copyTo(dwgFile.outputStream()) }
-
-                // 2. JNI: DWG → DXF
-                val dxfFile = File(cacheDir, "current.dxf")
-                val rc = NativeDwg.nativeDwgToDxf(dwgFile.absolutePath, dxfFile.absolutePath)
-                if (rc != 0) throw RuntimeException("DWG 변환 실패 (코드: $rc)")
-
-                // 3. DXF 파싱 → Drawing 모델
-                val dxfContent = dxfFile.readText()
-                Pair(DxfParser.parse(dxfContent), displayName)
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                true
             }
-
-            withContext(Dispatchers.Main) {
-                result.fold(
-                    onSuccess = { (drawing, displayName) ->
-                        // SAF URI 퍼미션 영구 보존 — 없으면 앱 재시작 시 SecurityException
-                        runCatching {
-                            contentResolver.takePersistableUriPermission(
-                                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
-                        }
-                        RecentFilesManager(this@ViewerActivity).add(uri.toString(), displayName)
-                        showDrawing()
-                        drawingView.setDrawing(drawing)
-                    },
-                    onFailure = { e ->
-                        showError(getString(R.string.error_prefix) + (e.message ?: "알 수 없는 오류"))
-                    }
-                )
-            }
+            else -> super.onOptionsItemSelected(item)
         }
     }
 
