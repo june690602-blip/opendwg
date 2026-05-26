@@ -113,6 +113,10 @@ object DxfParser {
             is DxfArc        -> e.copy(center = tp(e.center))
             is DxfLwPolyline -> e.copy(vertices = e.vertices.map { tp(it) })
             is DxfPolyline   -> e.copy(vertices = e.vertices.map { tp(it) })
+            is Dxf3DFace     -> e.copy(
+                corner1 = tp(e.corner1), corner2 = tp(e.corner2),
+                corner3 = tp(e.corner3), corner4 = tp(e.corner4)
+            )
             is DxfEllipse    -> e.copy(center = tp(e.center))
             is DxfSpline     -> e.copy(controlPoints = e.controlPoints.map { tp(it) })
             is DxfText       -> e.copy(insertionPoint = tp(e.insertionPoint))
@@ -239,6 +243,7 @@ object DxfParser {
         "ARC"        -> parseArc(reader)
         "LWPOLYLINE" -> parseLwPolyline(reader)
         "POLYLINE"   -> parsePolyline(reader)
+        "3DFACE"     -> parse3dFace(reader)
         "ELLIPSE"    -> parseEllipse(reader)
         "SPLINE"     -> parseSpline(reader)
         "TEXT"       -> parseText(reader)
@@ -377,6 +382,28 @@ object DxfParser {
             }
         }
         return DxfPolyline(layer, vertices, closed)
+    }
+
+    private fun parse3dFace(reader: DxfReader): Dxf3DFace {
+        var layer = "0"
+        var x1 = 0.0; var y1 = 0.0; var x2 = 0.0; var y2 = 0.0
+        var x3 = 0.0; var y3 = 0.0; var x4 = 0.0; var y4 = 0.0
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val next = reader.next()
+            when (next.code) {
+                8  -> layer = next.value
+                10 -> x1 = next.value.toDouble()
+                20 -> y1 = next.value.toDouble()
+                11 -> x2 = next.value.toDouble()
+                21 -> y2 = next.value.toDouble()
+                12 -> x3 = next.value.toDouble()
+                22 -> y3 = next.value.toDouble()
+                13 -> x4 = next.value.toDouble()
+                23 -> y4 = next.value.toDouble()
+            }
+        }
+        return Dxf3DFace(layer, Vec2(x1, y1), Vec2(x2, y2), Vec2(x3, y3), Vec2(x4, y4))
     }
 
     private fun parseEllipse(reader: DxfReader): DxfEllipse {
@@ -533,6 +560,10 @@ object DxfParser {
                                       points.add(Vec2(c.x - r, c.y - r)); points.add(Vec2(c.x + r, c.y + r)) }
                 is DxfLwPolyline -> points.addAll(entity.vertices)
                 is DxfPolyline   -> points.addAll(entity.vertices)
+                is Dxf3DFace     -> {
+                    points.add(entity.corner1); points.add(entity.corner2)
+                    points.add(entity.corner3); points.add(entity.corner4)
+                }
                 is DxfEllipse    -> { val len = Math.hypot(entity.majorAxis.x, entity.majorAxis.y)
                                       val c = entity.center
                                       points.add(Vec2(c.x - len, c.y - len)); points.add(Vec2(c.x + len, c.y + len)) }

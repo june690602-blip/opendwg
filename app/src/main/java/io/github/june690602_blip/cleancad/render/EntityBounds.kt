@@ -23,6 +23,12 @@ fun DxfEntity.worldBounds(): BoundingBox? = when (this) {
         vertices.minOf { it.x }, vertices.minOf { it.y },
         vertices.maxOf { it.x }, vertices.maxOf { it.y }
     )
+    is Dxf3DFace     -> BoundingBox(
+        minOf(corner1.x, corner2.x, corner3.x, corner4.x),
+        minOf(corner1.y, corner2.y, corner3.y, corner4.y),
+        maxOf(corner1.x, corner2.x, corner3.x, corner4.x),
+        maxOf(corner1.y, corner2.y, corner3.y, corner4.y)
+    )
     else -> null
 }
 

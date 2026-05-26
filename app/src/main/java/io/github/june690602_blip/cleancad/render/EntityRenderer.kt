@@ -68,6 +68,7 @@ class EntityRenderer {
             is DxfArc        -> drawArc(entity, canvas, matrix)
             is DxfLwPolyline -> drawLwPolyline(entity, canvas, matrix)
             is DxfPolyline   -> drawPolyline(entity, canvas, matrix)
+            is Dxf3DFace     -> draw3dFace(entity, canvas, matrix)
             is DxfEllipse    -> drawEllipse(entity, canvas, matrix)
             is DxfSpline     -> drawSpline(entity, canvas, matrix)
             is DxfText       -> drawText(entity, canvas, matrix)
@@ -123,6 +124,20 @@ class EntityRenderer {
             path.lineTo(pt.x, pt.y)
         }
         if (e.closed) path.close()
+        canvas.drawPath(path, linePaint)
+    }
+
+    private fun draw3dFace(e: Dxf3DFace, canvas: Canvas, matrix: Matrix) {
+        val p1 = CoordTransform.worldToScreen(e.corner1, matrix)
+        val p2 = CoordTransform.worldToScreen(e.corner2, matrix)
+        val p3 = CoordTransform.worldToScreen(e.corner3, matrix)
+        val p4 = CoordTransform.worldToScreen(e.corner4, matrix)
+        val path = Path()
+        path.moveTo(p1.x, p1.y)
+        path.lineTo(p2.x, p2.y)
+        path.lineTo(p3.x, p3.y)
+        if (e.corner4 != e.corner3) path.lineTo(p4.x, p4.y)
+        path.close()
         canvas.drawPath(path, linePaint)
     }
 

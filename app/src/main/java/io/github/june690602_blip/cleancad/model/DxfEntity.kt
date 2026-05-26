@@ -38,6 +38,14 @@ data class DxfPolyline(
     val closed: Boolean
 ) : DxfEntity()
 
+data class Dxf3DFace(
+    override val layer: String,
+    val corner1: Vec2,
+    val corner2: Vec2,
+    val corner3: Vec2,
+    val corner4: Vec2
+) : DxfEntity()
+
 data class DxfEllipse(
     override val layer: String,
     val center: Vec2,

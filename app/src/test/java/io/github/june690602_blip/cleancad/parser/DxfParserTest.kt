@@ -637,6 +637,48 @@ SEQEND""".trimIndent())
         assertTrue(poly.closed)
     }
 
+    // ---- 3DFACE ----
+
+    @Test
+    fun parse3dFace_returnsFourCorners() {
+        val dxf = withEntities("""
+  0
+3DFACE
+  8
+faces
+ 10
+0.0
+ 20
+0.0
+ 30
+0.0
+ 11
+10.0
+ 21
+0.0
+ 31
+0.0
+ 12
+10.0
+ 22
+10.0
+ 32
+0.0
+ 13
+0.0
+ 23
+10.0
+ 33
+0.0""".trimIndent())
+
+        val face = DxfParser.parse(dxf).entities[0] as Dxf3DFace
+        assertEquals("faces", face.layer)
+        assertEquals(Vec2(0.0, 0.0),   face.corner1)
+        assertEquals(Vec2(10.0, 0.0),  face.corner2)
+        assertEquals(Vec2(10.0, 10.0), face.corner3)
+        assertEquals(Vec2(0.0, 10.0),  face.corner4)
+    }
+
     // ---- displayExtents (아웃라이어 필터링) ----
 
     @Test
