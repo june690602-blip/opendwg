@@ -28,6 +28,9 @@ class ViewerActivity : AppCompatActivity() {
 
     private val viewModel: DrawingViewModel by viewModels()
 
+    // Tracks the last URI rendered to avoid repeating side-effects on lifecycle re-subscription.
+    private var renderedUri: Uri? = null
+
     private val openDoc = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.load(uri) else finish()
     }
@@ -49,6 +52,9 @@ class ViewerActivity : AppCompatActivity() {
                         is DrawingState.Idle    -> { /* 초기 상태 */ }
                         is DrawingState.Loading -> showLoading()
                         is DrawingState.Success -> {
+                            // Skip repeated rendering on lifecycle re-subscription.
+                            if (state.uri == renderedUri) return@collect
+                            renderedUri = state.uri
                             runCatching {
                                 contentResolver.takePersistableUriPermission(
                                     state.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
