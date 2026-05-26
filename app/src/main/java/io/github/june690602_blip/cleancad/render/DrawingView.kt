@@ -25,7 +25,7 @@ class DrawingView @JvmOverloads constructor(
         context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val s = detector.scaleFactor.coerceIn(0.5f, 2.0f)
+                val s = detector.scaleFactor
                 matrix.postScale(s, s, detector.focusX, detector.focusY)
                 invalidate()
                 return true
