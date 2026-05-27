@@ -191,4 +191,47 @@ class NativeDecoderTest {
         assertFalse(p.closed)
         assertEquals(2, p.vertices.size)
     }
+
+    private fun textEntity(
+        typeId: Int, layerIdx: Int,
+        ix: Double, iy: Double, height: Double, rotDeg: Double, text: String
+    ): ByteArray {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 4 + 2 + textBytes.size)
+            .order(ByteOrder.LITTLE_ENDIAN)
+        b.put(typeId.toByte())
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        b.putDouble(ix); b.putDouble(iy); b.putDouble(height); b.putDouble(rotDeg)
+        b.putShort(textBytes.size.toShort()); b.put(textBytes)
+        return b.array()
+    }
+
+    @Test
+    fun decode_text_koreanPreserved() {
+        val bytes = buildBuffer(
+            entities = listOf(textEntity(
+                NativeProtocol.TYPE_TEXT, -1, 0.0, 0.0, 2.5, 0.0, "철근콘크리트 D13"
+            ))
+        )
+        val t = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfText
+        assertEquals("철근콘크리트 D13", t.text)
+        assertEquals(2.5, t.height, 1e-9)
+    }
+
+    @Test
+    fun decode_mtext_withFormattingCodes() {
+        val bytes = buildBuffer(
+            entities = listOf(textEntity(
+                NativeProtocol.TYPE_MTEXT, -1, 0.0, 0.0, 3.0, 45.0,
+                """\fArial|b0|i0;벽체\P두께 200"""
+            ))
+        )
+        val m = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfMText
+        // 포맷 코드는 EntityRenderer.drawMText가 strip; 디코더는 원문 그대로 보존
+        assertTrue(m.text.contains("벽체"))
+        assertTrue(m.text.contains("두께 200"))
+        assertEquals(45.0, m.rotationDeg, 1e-9)
+    }
 }

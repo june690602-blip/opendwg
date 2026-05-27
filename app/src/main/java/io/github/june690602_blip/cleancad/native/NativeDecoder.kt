@@ -7,7 +7,9 @@ import io.github.june690602_blip.cleancad.model.DxfCircle
 import io.github.june690602_blip.cleancad.model.DxfEntity
 import io.github.june690602_blip.cleancad.model.DxfLine
 import io.github.june690602_blip.cleancad.model.DxfLwPolyline
+import io.github.june690602_blip.cleancad.model.DxfMText
 import io.github.june690602_blip.cleancad.model.DxfPolyline
+import io.github.june690602_blip.cleancad.model.DxfText
 import io.github.june690602_blip.cleancad.model.Layer
 import io.github.june690602_blip.cleancad.model.Vec2
 import java.nio.ByteBuffer
@@ -69,6 +71,8 @@ object NativeDecoder {
                 NativeProtocol.TYPE_LWPOLYLINE      -> decodeLwPolyline(buf, layerName)
                 NativeProtocol.TYPE_POLYLINE_2D     -> decodePolyline(buf, layerName)
                 NativeProtocol.TYPE_POLYLINE_3D     -> decodePolyline(buf, layerName)
+                NativeProtocol.TYPE_TEXT            -> decodeText(buf, layerName)
+                NativeProtocol.TYPE_MTEXT           -> decodeMText(buf, layerName)
                 else -> {
                     skipUnknownPayload(buf, typeId)
                     null
@@ -111,6 +115,22 @@ object NativeDecoder {
         val n = buf.int
         val verts = List(n) { Vec2(buf.double, buf.double) }
         return DxfPolyline(layer, verts, closed)
+    }
+
+    private fun decodeText(buf: ByteBuffer, layer: String): DxfText {
+        val ix = buf.double; val iy = buf.double
+        val height = buf.double; val rot = buf.double
+        val len = buf.short.toInt() and 0xFFFF
+        val bytes = ByteArray(len); buf.get(bytes)
+        return DxfText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot)
+    }
+
+    private fun decodeMText(buf: ByteBuffer, layer: String): DxfMText {
+        val ix = buf.double; val iy = buf.double
+        val height = buf.double; val rot = buf.double
+        val len = buf.short.toInt() and 0xFFFF
+        val bytes = ByteArray(len); buf.get(bytes)
+        return DxfMText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot)
     }
 
     /** UNKNOWN 또는 아직 미지원 타입의 페이로드를 건너뛴다. Task 별로 케이스 추가. */
