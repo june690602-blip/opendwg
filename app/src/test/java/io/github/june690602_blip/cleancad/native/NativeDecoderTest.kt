@@ -108,4 +108,87 @@ class NativeDecoderTest {
         val line = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfLine
         assertEquals("0", line.layer)
     }
+
+    private fun circleEntity(layerIdx: Int, cx: Double, cy: Double, r: Double): ByteArray {
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 3).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_CIRCLE.toByte())
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        b.putDouble(cx); b.putDouble(cy); b.putDouble(r)
+        return b.array()
+    }
+
+    private fun arcEntity(
+        layerIdx: Int, cx: Double, cy: Double, r: Double, start: Double, end: Double
+    ): ByteArray {
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 5).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_ARC.toByte())
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        b.putDouble(cx); b.putDouble(cy); b.putDouble(r)
+        b.putDouble(start); b.putDouble(end)
+        return b.array()
+    }
+
+    private fun lwPolylineEntity(
+        layerIdx: Int, closed: Boolean, verts: List<Pair<Double, Double>>
+    ): ByteArray {
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 1 + 4 + 16 * verts.size)
+            .order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_LWPOLYLINE.toByte())
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        b.put(if (closed) 1 else 0)
+        b.putInt(verts.size)
+        verts.forEach { (x, y) -> b.putDouble(x); b.putDouble(y) }
+        return b.array()
+    }
+
+    @Test
+    fun decode_circle() {
+        val drawing = NativeDecoder.decode(buildBuffer(
+            entities = listOf(circleEntity(-1, 5.0, 5.0, 2.5))
+        ))
+        val c = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfCircle
+        assertEquals(5.0, c.center.x, 1e-9)
+        assertEquals(2.5, c.radius, 1e-9)
+    }
+
+    @Test
+    fun decode_arc() {
+        val drawing = NativeDecoder.decode(buildBuffer(
+            entities = listOf(arcEntity(-1, 0.0, 0.0, 1.0, 30.0, 120.0))
+        ))
+        val a = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfArc
+        assertEquals(30.0, a.startAngleDeg, 1e-9)
+        assertEquals(120.0, a.endAngleDeg, 1e-9)
+    }
+
+    @Test
+    fun decode_lwPolyline_closed() {
+        val drawing = NativeDecoder.decode(buildBuffer(
+            entities = listOf(lwPolylineEntity(
+                -1, closed = true,
+                verts = listOf(0.0 to 0.0, 1.0 to 0.0, 1.0 to 1.0)
+            ))
+        ))
+        val p = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfLwPolyline
+        assertTrue(p.closed)
+        assertEquals(3, p.vertices.size)
+    }
+
+    @Test
+    fun decode_polyline2D_mappedToDxfPolyline() {
+        // POLYLINE_2D는 DxfPolyline으로 매핑 (Phase 7과 호환)
+        val b = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_POLYLINE_2D.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.put(0); b.putInt(2)
+        b.putDouble(0.0); b.putDouble(0.0)
+        b.putDouble(5.0); b.putDouble(0.0)
+        val entityBytes = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entityBytes, 0, entityBytes.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entityBytes)))
+        val p = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfPolyline
+        assertFalse(p.closed)
+        assertEquals(2, p.vertices.size)
+    }
 }

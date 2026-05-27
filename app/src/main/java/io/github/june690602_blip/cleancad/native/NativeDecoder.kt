@@ -2,8 +2,12 @@ package io.github.june690602_blip.cleancad.native
 
 import io.github.june690602_blip.cleancad.model.BoundingBox
 import io.github.june690602_blip.cleancad.model.Drawing
+import io.github.june690602_blip.cleancad.model.DxfArc
+import io.github.june690602_blip.cleancad.model.DxfCircle
 import io.github.june690602_blip.cleancad.model.DxfEntity
 import io.github.june690602_blip.cleancad.model.DxfLine
+import io.github.june690602_blip.cleancad.model.DxfLwPolyline
+import io.github.june690602_blip.cleancad.model.DxfPolyline
 import io.github.june690602_blip.cleancad.model.Layer
 import io.github.june690602_blip.cleancad.model.Vec2
 import java.nio.ByteBuffer
@@ -59,7 +63,12 @@ object NativeDecoder {
             val rgb = buf.int
             val layerName = layerNameAt(layers, layerIdx)
             val entity: DxfEntity? = when (typeId) {
-                NativeProtocol.TYPE_LINE -> decodeLine(buf, layerName)
+                NativeProtocol.TYPE_LINE            -> decodeLine(buf, layerName)
+                NativeProtocol.TYPE_CIRCLE          -> decodeCircle(buf, layerName)
+                NativeProtocol.TYPE_ARC             -> decodeArc(buf, layerName)
+                NativeProtocol.TYPE_LWPOLYLINE      -> decodeLwPolyline(buf, layerName)
+                NativeProtocol.TYPE_POLYLINE_2D     -> decodePolyline(buf, layerName)
+                NativeProtocol.TYPE_POLYLINE_3D     -> decodePolyline(buf, layerName)
                 else -> {
                     skipUnknownPayload(buf, typeId)
                     null
@@ -77,6 +86,31 @@ object NativeDecoder {
         val sx = buf.double; val sy = buf.double
         val ex = buf.double; val ey = buf.double
         return DxfLine(layer, Vec2(sx, sy), Vec2(ex, ey))
+    }
+
+    private fun decodeCircle(buf: ByteBuffer, layer: String): DxfCircle {
+        val cx = buf.double; val cy = buf.double; val r = buf.double
+        return DxfCircle(layer, Vec2(cx, cy), r)
+    }
+
+    private fun decodeArc(buf: ByteBuffer, layer: String): DxfArc {
+        val cx = buf.double; val cy = buf.double; val r = buf.double
+        val start = buf.double; val end = buf.double
+        return DxfArc(layer, Vec2(cx, cy), r, start, end)
+    }
+
+    private fun decodeLwPolyline(buf: ByteBuffer, layer: String): DxfLwPolyline {
+        val closed = buf.get() != 0.toByte()
+        val n = buf.int
+        val verts = List(n) { Vec2(buf.double, buf.double) }
+        return DxfLwPolyline(layer, verts, closed)
+    }
+
+    private fun decodePolyline(buf: ByteBuffer, layer: String): DxfPolyline {
+        val closed = buf.get() != 0.toByte()
+        val n = buf.int
+        val verts = List(n) { Vec2(buf.double, buf.double) }
+        return DxfPolyline(layer, verts, closed)
     }
 
     /** UNKNOWN 또는 아직 미지원 타입의 페이로드를 건너뛴다. Task 별로 케이스 추가. */
