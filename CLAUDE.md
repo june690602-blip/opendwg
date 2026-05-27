@@ -15,7 +15,15 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 2 plan: `docs/superpowers/plans/2026-05-25-phase2-libredwg-ndk.md`
 
 ## Status (2026-05-27)
-- Phase 0–6 전부 완료. 단위 테스트 38개 통과. 실제 DWG 2종 렌더링 확인.
+- Phase 0–7 전부 완료. 단위 테스트 59개 통과. 실제 DWG 2종 렌더링 확인.
+- **Phase 7 완료**: 렌더링 품질 대폭 개선 (ZWCAD Mobile 벤치마크).
+  - DXF 인코딩 자동 감지 (`$DWGCODEPAGE` → MS949/UTF-8 등) — 한글 깨짐 해결
+  - AciColor 256색 표준 팔레트 — 레이어별 색상 렌더링
+  - POLYLINE (구형식) 파서 + 렌더링 — VERTEX/SEQEND 시퀀스
+  - 3DFACE, SOLID 파서 + 렌더링 (SOLID는 FILL)
+  - HATCH polyline + line-edge boundary 파싱 + 솔리드 채우기
+  - MAX_ENTITIES 50K → 100K
+  플랜: `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 - **Phase 6 완료**: 렌더링 품질 개선 + Play Store 출시 준비.
   - `%%D/C/P/U/O` 이스케이프 코드 → 유니코드 변환 (°, ⌀, ±)
   - Fit-to-Screen 아웃라이어 필터링 (`displayExtents`, trimRatio=5%)
@@ -26,7 +34,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - **Phase 5 완료**: 다크모드, 설정, 최근파일, Share/View Intent, Toolbar 버그 수정.
 - **핫픽스 완료** (`edb41ca`): DxfReader 스트리밍(OOM 방지) + MAX_ENTITIES=50,000(ANR 방지)
   + INSERT 블록 확장(`expandEntities`) — 13MB DWG 파일 정상 렌더링.
-- **Next = Play Store 출시**: keystore 생성 후 `assembleRelease` → Google Play Console 업로드.
+- **Next = 수동 검증 + Play Store 출시**: 04_참고도면.dwg / 워킹타워.dwg 비교 스크린샷 후
+  ZWCAD 수준 도달 확인 → Play Store 업로드. 미흡 시 Phase 8 (LibreDWG 바이너리 API).
 
 ## Build & test
 - After clone, init the submodule: `git submodule update --init --recursive`
