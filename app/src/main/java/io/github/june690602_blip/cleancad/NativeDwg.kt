@@ -7,4 +7,5 @@ object NativeDwg {
 
     external fun nativeLibredwgVersion(): String
     external fun nativeDwgToDxf(inPath: String, outPath: String): Int
+    external fun nativeDwgToBuffer(inPath: String): ByteArray?
 }

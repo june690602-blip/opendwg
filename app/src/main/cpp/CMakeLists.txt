@@ -18,7 +18,7 @@ set(ENABLE_LTO OFF CACHE BOOL "" FORCE)
 set(DISABLE_WERROR ON CACHE BOOL "" FORCE)
 add_subdirectory(libredwg)
 
-add_library(dwgjni SHARED dwgjni.c)
+add_library(dwgjni SHARED dwgjni.c dwg_serialize.c)
 
 target_include_directories(dwgjni PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/libredwg/include
