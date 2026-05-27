@@ -5,8 +5,11 @@ import io.github.june690602_blip.cleancad.model.Dxf3DFace
 import io.github.june690602_blip.cleancad.model.Drawing
 import io.github.june690602_blip.cleancad.model.DxfArc
 import io.github.june690602_blip.cleancad.model.DxfCircle
+import io.github.june690602_blip.cleancad.model.DxfDimension
 import io.github.june690602_blip.cleancad.model.DxfEllipse
 import io.github.june690602_blip.cleancad.model.DxfEntity
+import io.github.june690602_blip.cleancad.model.DxfHatch
+import io.github.june690602_blip.cleancad.model.DxfLeader
 import io.github.june690602_blip.cleancad.model.DxfLine
 import io.github.june690602_blip.cleancad.model.DxfLwPolyline
 import io.github.june690602_blip.cleancad.model.DxfMText
@@ -79,6 +82,9 @@ object NativeDecoder {
                 NativeProtocol.TYPE_MTEXT           -> decodeMText(buf, layerName)
                 NativeProtocol.TYPE_3DFACE          -> decode3dFace(buf, layerName)
                 NativeProtocol.TYPE_SOLID           -> decodeSolid(buf, layerName)
+                NativeProtocol.TYPE_HATCH           -> decodeHatch(buf, layerName)
+                NativeProtocol.TYPE_DIMENSION       -> decodeDimension(buf, layerName)
+                NativeProtocol.TYPE_LEADER          -> decodeLeader(buf, layerName)
                 NativeProtocol.TYPE_ELLIPSE         -> decodeEllipse(buf, layerName)
                 NativeProtocol.TYPE_SPLINE          -> decodeSpline(buf, layerName)
                 else -> {
@@ -164,6 +170,31 @@ object NativeDecoder {
         val degree = buf.int; val n = buf.int
         val ctrl = List(n) { Vec2(buf.double, buf.double) }
         return DxfSpline(layer, degree, ctrl)
+    }
+
+    private fun decodeHatch(buf: ByteBuffer, layer: String): DxfHatch {
+        val isSolid = buf.get() != 0.toByte()
+        val numPaths = buf.int
+        val paths = List(numPaths) {
+            val n = buf.int
+            List(n) { Vec2(buf.double, buf.double) }
+        }
+        return DxfHatch(layer, isSolid, paths)
+    }
+
+    private fun decodeDimension(buf: ByteBuffer, layer: String): DxfDimension {
+        val def = Vec2(buf.double, buf.double)
+        val tp = Vec2(buf.double, buf.double)
+        val dimType = buf.int
+        val len = buf.short.toInt() and 0xFFFF
+        val bytes = ByteArray(len); buf.get(bytes)
+        return DxfDimension(layer, def, tp, dimType, String(bytes, Charsets.UTF_8))
+    }
+
+    private fun decodeLeader(buf: ByteBuffer, layer: String): DxfLeader {
+        val n = buf.int
+        val verts = List(n) { Vec2(buf.double, buf.double) }
+        return DxfLeader(layer, verts)
     }
 
     /** UNKNOWN 또는 아직 미지원 타입의 페이로드를 건너뛴다. Task 별로 케이스 추가. */

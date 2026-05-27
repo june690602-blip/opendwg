@@ -307,4 +307,69 @@ class NativeDecoderTest {
         assertEquals(3, s.degree)
         assertEquals(2, s.controlPoints.size)
     }
+
+    @Test
+    fun decode_hatch_twoSolidPaths() {
+        val b = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_HATCH.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.put(1)         // isSolid
+        b.putInt(2)      // num_paths
+        // path 1: 4 vertices
+        b.putInt(4)
+        b.putDouble(0.0); b.putDouble(0.0)
+        b.putDouble(1.0); b.putDouble(0.0)
+        b.putDouble(1.0); b.putDouble(1.0)
+        b.putDouble(0.0); b.putDouble(1.0)
+        // path 2: 3 vertices
+        b.putInt(3)
+        b.putDouble(2.0); b.putDouble(2.0)
+        b.putDouble(3.0); b.putDouble(2.0)
+        b.putDouble(2.5); b.putDouble(3.0)
+        val entity = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
+        val h = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfHatch
+        assertTrue(h.isSolid)
+        assertEquals(2, h.paths.size)
+        assertEquals(4, h.paths[0].size)
+        assertEquals(3, h.paths[1].size)
+    }
+
+    @Test
+    fun decode_dimension_withTextOverride() {
+        val textBytes = "100mm".toByteArray(Charsets.UTF_8)
+        val b = ByteBuffer.allocate(96).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_DIMENSION.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.putDouble(0.0); b.putDouble(0.0)   // def
+        b.putDouble(5.0); b.putDouble(5.0)   // text mid
+        b.putInt(0)                          // dimType
+        b.putShort(textBytes.size.toShort())
+        b.put(textBytes)
+        val entity = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
+        val d = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfDimension
+        assertEquals("100mm", d.textOverride)
+    }
+
+    @Test
+    fun decode_leader() {
+        val b = ByteBuffer.allocate(96).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_LEADER.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.putInt(3)
+        b.putDouble(0.0); b.putDouble(0.0)
+        b.putDouble(5.0); b.putDouble(0.0)
+        b.putDouble(7.0); b.putDouble(3.0)
+        val entity = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
+        val l = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfLeader
+        assertEquals(3, l.vertices.size)
+    }
 }
