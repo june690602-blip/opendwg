@@ -2,6 +2,8 @@ package io.github.june690602_blip.cleancad.render
 
 import android.graphics.*
 import io.github.june690602_blip.cleancad.model.*
+import io.github.june690602_blip.cleancad.model.Drawing
+import io.github.june690602_blip.cleancad.model.EntityColor
 import kotlin.math.*
 
 class EntityRenderer {
@@ -27,6 +29,7 @@ class EntityRenderer {
     private var bgColor: Int = Color.WHITE
     private var defaultLineColor: Int = Color.BLACK
     private var layerColorMap: Map<String, Int> = emptyMap()
+    private var entityColorByIdentity: Map<DxfEntity, Int> = emptyMap()
 
     fun setColors(bgColor: Int, lineColor: Int) {
         this.bgColor = bgColor
@@ -41,8 +44,34 @@ class EntityRenderer {
         }
     }
 
+    /** Phase 8: Drawing 전체를 받아 엔티티별 색상까지 lookup 가능하게 한다. */
+    fun setDrawing(drawing: Drawing) {
+        setLayers(drawing.layers)
+        if (drawing.entityColors.isEmpty()) {
+            entityColorByIdentity = emptyMap()
+            return
+        }
+        val map = HashMap<DxfEntity, Int>(drawing.entities.size)
+        for (i in drawing.entities.indices) {
+            val ec = drawing.entityColors[i]
+            val color: Int = when {
+                ec.hasRgb -> 0xFF000000.toInt() or ec.rgb
+                ec.isByLayer || ec.isByBlock ->
+                    layerColorMap[drawing.entities[i].layer] ?: defaultLineColor
+                else -> AciColor.toArgb(
+                    ec.colorIndex,
+                    fallback = layerColorMap[drawing.entities[i].layer] ?: defaultLineColor
+                )
+            }
+            map[drawing.entities[i]] = color
+        }
+        entityColorByIdentity = map
+    }
+
     private fun colorFor(entity: DxfEntity): Int =
-        layerColorMap[entity.layer] ?: defaultLineColor
+        entityColorByIdentity[entity]
+            ?: layerColorMap[entity.layer]
+            ?: defaultLineColor
 
     /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다. */
     fun drawAll(

@@ -1,6 +1,7 @@
 package io.github.june690602_blip.cleancad.native
 
 import io.github.june690602_blip.cleancad.model.BoundingBox
+import io.github.june690602_blip.cleancad.model.EntityColor
 import io.github.june690602_blip.cleancad.model.Dxf3DFace
 import io.github.june690602_blip.cleancad.model.Drawing
 import io.github.june690602_blip.cleancad.model.DxfArc
@@ -44,9 +45,9 @@ object NativeDecoder {
         } else null
 
         val layers = decodeLayers(buf, numLayers)
-        val entities = decodeEntities(buf, numEntities, layers)
+        val (entities, entityColors) = decodeEntities(buf, numEntities, layers)
 
-        return Drawing(entities, layers, extents, extents)
+        return Drawing(entities, layers, extents, extents, entityColors)
     }
 
     private fun decodeLayers(buf: ByteBuffer, count: Int): List<Layer> =
@@ -63,38 +64,39 @@ object NativeDecoder {
 
     private fun decodeEntities(
         buf: ByteBuffer, count: Int, layers: List<Layer>
-    ): List<DxfEntity> {
-        val result = ArrayList<DxfEntity>(count)
+    ): Pair<List<DxfEntity>, List<EntityColor>> {
+        val entities = ArrayList<DxfEntity>(count)
+        val colors = ArrayList<EntityColor>(count)
         repeat(count) {
             val typeId = buf.get().toInt() and 0xFF
             val layerIdx = buf.int
-            val colorIdx = buf.short
+            val colorIdx = buf.short.toInt()
             val rgb = buf.int
             val layerName = layerNameAt(layers, layerIdx)
             val entity: DxfEntity? = when (typeId) {
-                NativeProtocol.TYPE_LINE            -> decodeLine(buf, layerName)
-                NativeProtocol.TYPE_CIRCLE          -> decodeCircle(buf, layerName)
-                NativeProtocol.TYPE_ARC             -> decodeArc(buf, layerName)
-                NativeProtocol.TYPE_LWPOLYLINE      -> decodeLwPolyline(buf, layerName)
-                NativeProtocol.TYPE_POLYLINE_2D     -> decodePolyline(buf, layerName)
-                NativeProtocol.TYPE_POLYLINE_3D     -> decodePolyline(buf, layerName)
-                NativeProtocol.TYPE_TEXT            -> decodeText(buf, layerName)
-                NativeProtocol.TYPE_MTEXT           -> decodeMText(buf, layerName)
-                NativeProtocol.TYPE_3DFACE          -> decode3dFace(buf, layerName)
-                NativeProtocol.TYPE_SOLID           -> decodeSolid(buf, layerName)
-                NativeProtocol.TYPE_HATCH           -> decodeHatch(buf, layerName)
-                NativeProtocol.TYPE_DIMENSION       -> decodeDimension(buf, layerName)
-                NativeProtocol.TYPE_LEADER          -> decodeLeader(buf, layerName)
-                NativeProtocol.TYPE_ELLIPSE         -> decodeEllipse(buf, layerName)
-                NativeProtocol.TYPE_SPLINE          -> decodeSpline(buf, layerName)
-                else -> {
-                    skipUnknownPayload(buf, typeId)
-                    null
-                }
+                NativeProtocol.TYPE_LINE        -> decodeLine(buf, layerName)
+                NativeProtocol.TYPE_CIRCLE      -> decodeCircle(buf, layerName)
+                NativeProtocol.TYPE_ARC         -> decodeArc(buf, layerName)
+                NativeProtocol.TYPE_LWPOLYLINE  -> decodeLwPolyline(buf, layerName)
+                NativeProtocol.TYPE_POLYLINE_2D -> decodePolyline(buf, layerName)
+                NativeProtocol.TYPE_POLYLINE_3D -> decodePolyline(buf, layerName)
+                NativeProtocol.TYPE_TEXT        -> decodeText(buf, layerName)
+                NativeProtocol.TYPE_MTEXT       -> decodeMText(buf, layerName)
+                NativeProtocol.TYPE_3DFACE      -> decode3dFace(buf, layerName)
+                NativeProtocol.TYPE_SOLID       -> decodeSolid(buf, layerName)
+                NativeProtocol.TYPE_HATCH       -> decodeHatch(buf, layerName)
+                NativeProtocol.TYPE_DIMENSION   -> decodeDimension(buf, layerName)
+                NativeProtocol.TYPE_LEADER      -> decodeLeader(buf, layerName)
+                NativeProtocol.TYPE_ELLIPSE     -> decodeEllipse(buf, layerName)
+                NativeProtocol.TYPE_SPLINE      -> decodeSpline(buf, layerName)
+                else -> { skipUnknownPayload(buf, typeId); null }
             }
-            if (entity != null) result.add(entity)
+            if (entity != null) {
+                entities.add(entity)
+                colors.add(EntityColor(colorIdx, rgb))
+            }
         }
-        return result
+        return entities to colors
     }
 
     private fun layerNameAt(layers: List<Layer>, idx: Int): String =

@@ -19,5 +19,6 @@ data class Drawing(
     val entities: List<DxfEntity>,
     val layers: List<Layer>,
     val extents: BoundingBox?,
-    val displayExtents: BoundingBox?
+    val displayExtents: BoundingBox?,
+    val entityColors: List<EntityColor> = emptyList()  // entities와 1:1, 비어있으면 모두 BYLAYER로 간주
 )

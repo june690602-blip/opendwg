@@ -58,7 +58,7 @@ class DrawingView @JvmOverloads constructor(
     /** 외부에서 Drawing 모델을 설정한다. 메인 스레드에서 호출해야 한다. */
     fun setDrawing(drawing: Drawing) {
         this.drawing = drawing
-        renderer.setLayers(drawing.layers)
+        renderer.setDrawing(drawing)
         if (width > 0 && height > 0) fitToScreen() else matrix = Matrix()
         invalidate()
     }
