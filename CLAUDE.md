@@ -7,35 +7,63 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Kotlin, Android Views (XML layouts). minSdk 24, compile/targetSdk 36.
 - DWG parsing: **LibreDWG 0.13.4** (GPL v3), vendored as a git submodule under
   `app/src/main/cpp/libredwg`, built via CMake/NDK, called over JNI.
-- Rendering pipeline (planned): DWG → DXF → parse entities → custom `Canvas` (`DrawingView`).
+- Rendering pipeline: **DWG → native serializer (Dwg_Data 직접 순회) → binary buffer
+  → Kotlin NativeDecoder → Drawing model → custom `Canvas` (`DrawingView`)**.
+  DXF 텍스트 중간단계는 Phase 8에서 제거됨 (현재 `nativeDwgToDxf` 함수 잔존하나
+  사용 안 함; Task 11에서 삭제 예정).
 - Package / applicationId: `io.github.june690602_blip.cleancad`
 
 ## Key docs (read these first to get oriented)
 - Design spec — all decisions: `docs/superpowers/specs/2026-05-25-cleancad-viewer-design.md`
-- Phase 2 plan: `docs/superpowers/plans/2026-05-25-phase2-libredwg-ndk.md`
+- Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
+- Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-05-27)
-- Phase 0–7 전부 완료. 단위 테스트 59개 통과. 실제 DWG 2종 렌더링 확인.
-- **Phase 7 완료**: 렌더링 품질 대폭 개선 (ZWCAD Mobile 벤치마크).
-  - DXF 인코딩 자동 감지 (`$DWGCODEPAGE` → MS949/UTF-8 등) — 한글 깨짐 해결
-  - AciColor 256색 표준 팔레트 — 레이어별 색상 렌더링
-  - POLYLINE (구형식) 파서 + 렌더링 — VERTEX/SEQEND 시퀀스
-  - 3DFACE, SOLID 파서 + 렌더링 (SOLID는 FILL)
-  - HATCH polyline + line-edge boundary 파싱 + 솔리드 채우기
-  - MAX_ENTITIES 50K → 100K
-  플랜: `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
-- **Phase 6 완료**: 렌더링 품질 개선 + Play Store 출시 준비.
-  - `%%D/C/P/U/O` 이스케이프 코드 → 유니코드 변환 (°, ⌀, ±)
-  - Fit-to-Screen 아웃라이어 필터링 (`displayExtents`, trimRatio=5%)
-  - 뷰포트 컬링 — 화면 밖 엔티티 스킵으로 렌더 성능 개선
-  - About 화면 — GPL v3 고지, LibreDWG 저작권 표시
-  - 릴리즈 서명 설정 (환경변수 기반, keystore 미커밋)
-  스펙: `docs/superpowers/specs/2026-05-27-phase6-rendering-and-release.md`
-- **Phase 5 완료**: 다크모드, 설정, 최근파일, Share/View Intent, Toolbar 버그 수정.
-- **핫픽스 완료** (`edb41ca`): DxfReader 스트리밍(OOM 방지) + MAX_ENTITIES=50,000(ANR 방지)
-  + INSERT 블록 확장(`expandEntities`) — 13MB DWG 파일 정상 렌더링.
-- **Next = 수동 검증 + Play Store 출시**: 04_참고도면.dwg / 워킹타워.dwg 비교 스크린샷 후
-  ZWCAD 수준 도달 확인 → Play Store 업로드. 미흡 시 Phase 8 (LibreDWG 바이너리 API).
+## Status (2026-05-27) — Phase 8 진행 중
+
+**현재 HEAD: `0e6a49d`** — 진단 로그 + extents fallback + 렌더 컬링 + HATCH 반투명.
+
+### 작동 중 ✅
+- LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
+- 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
+- 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
+- 13MB DWG 파일 1초 내 파싱 (110K objects → 100K entities)
+- 단위 테스트 80개 통과 (Kotlin native 디코더 17 + EntityColor 3 + 기존)
+- LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
+- INSERT 블록 재귀 전개 (depth 5, affine transform)
+- model-space만 순회 (paper-space 무시)
+- Layer name → index 캐시 (O(N²) → O(N))
+- 화면상 1px 미만 엔티티 + 4px 미만 텍스트 컬링 → 100K 엔티티에서도 ANR 안 남
+- HATCH 솔리드 채우기 25% 반투명 + 경계 항상 stroke (검정 덩어리 방지)
+- `fit-to-screen`이 `extents`/`displayExtents` 둘 다 null 처리 — Kotlin에서 entity bounds로 계산
+
+### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
+
+수동 검증 결과 (`ref.dwg` 13MB, 110K objects):
+1. **DIMENSION 화살표/수치 안 보임** — anonymous block 미펼침. `Dwg_Entity_DIMENSION_*`
+   의 `block` field가 가리키는 BLOCK_HEADER 안에 실제 화살표/수치 line/text가 있음.
+   현재 `drawDimension`은 def_pt → text_midpt 직선 1개 + textOverride만 렌더.
+   → Phase 8.5: DIMENSION의 block field를 INSERT처럼 전개해 자식 엔티티 렌더.
+2. **HATCH 패턴 미지원** — ANSI31/AR-CONC/벽돌무늬 등 모두 반투명 회색 솔리드로 fallback.
+   다른 캐드앱 대비 시각적 차이 큼. → Phase 8.6: 자주 쓰이는 10여개 패턴 라인 생성.
+3. **Model-space에 여러 시트 한꺼번에 표시** — 한국 건축 DWG는 평면/입면/단면을 한
+   파일 model-space에 다른 X/Y 좌표로 배치하는 게 흔함. 시트마다 별도 보기 UI 없음.
+   → Phase 8.7: 시트 클러스터링 자동 감지 + UI 탭/스와이프.
+4. **구 DXF 파이프라인 잔존** — `DxfParser`, `DxfReader`, `DxfCharsetDetector`,
+   `nativeDwgToDxf` JNI 함수 모두 미사용 상태로 유지 (회귀 대비). Phase 8.5
+   안정화 후 삭제 (원 플랜의 Task 11).
+
+### 디버그/로깅
+- `adb logcat | grep CleanCAD/` 로 ViewModel(파일 카피/파싱 타이밍, entity/layer 개수,
+  extents bounds) + dwgjni(dwg_read_file rc, num_objects, serialized bytes) 추적 가능.
+- 진단 도구 워크플로우: `ref.dwg` 데이터로 검증 — `extents=BoundingBox(-2M..2M, -2.7M..1.5M)`,
+  `entities=100000` (MAX_ENTITIES 도달), `serialized=6.2MB`, parse 1.2초.
+
+### 이전 phase 요약
+- **Phase 7**: DXF 텍스트 중간단계 기반 시도. 인코딩/색상 부분만 해결, 누락 엔티티 미해결.
+  Phase 8 채택 배경.
+- **Phase 6**: 텍스트 이스케이프, 컬링, 릴리즈 서명, About.
+- **Phase 5**: 다크모드, 설정, 최근파일.
+- **Phase 0–4**: LibreDWG NDK 빌드 + DXF 파서 + Renderer 골격.
 
 ## Build & test
 - After clone, init the submodule: `git submodule update --init --recursive`
