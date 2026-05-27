@@ -20,6 +20,7 @@ import io.github.june690602_blip.cleancad.model.DxfSpline
 import io.github.june690602_blip.cleancad.model.DxfText
 import io.github.june690602_blip.cleancad.model.Layer
 import io.github.june690602_blip.cleancad.model.Vec2
+import io.github.june690602_blip.cleancad.render.worldBounds
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -40,14 +41,60 @@ object NativeDecoder {
         val numEntities = buf.int
         val extentsPresent = buf.int
 
-        val extents = if (extentsPresent == 1) {
+        val nativeExtents = if (extentsPresent == 1) {
             BoundingBox(buf.double, buf.double, buf.double, buf.double)
         } else null
 
         val layers = decodeLayers(buf, numLayers)
         val (entities, entityColors) = decodeEntities(buf, numEntities, layers)
 
-        return Drawing(entities, layers, extents, extents, entityColors)
+        // Native 측이 extents를 보내지 않는 경우(현재 기본) — 엔티티 bounds로 계산.
+        // displayExtents는 5% 양끝 trim으로 아웃라이어 영향 제거 (Phase 6 전략).
+        val (extents, displayExtents) = if (nativeExtents != null) {
+            nativeExtents to nativeExtents
+        } else {
+            computeExtents(entities)
+        }
+
+        return Drawing(entities, layers, extents, displayExtents, entityColors)
+    }
+
+    /**
+     * 엔티티들의 worldBounds로부터 전체 extents와 displayExtents(아웃라이어 제거)를 계산.
+     * Returns (extents, displayExtents) — 둘 다 null일 수 있음.
+     */
+    private fun computeExtents(entities: List<DxfEntity>): Pair<BoundingBox?, BoundingBox?> {
+        if (entities.isEmpty()) return null to null
+
+        val boundsList = ArrayList<BoundingBox>(entities.size)
+        for (e in entities) {
+            val b = e.worldBounds()
+            if (b != null) boundsList.add(b)
+        }
+        if (boundsList.isEmpty()) return null to null
+
+        // 전체 extents
+        var minX = Double.POSITIVE_INFINITY; var minY = Double.POSITIVE_INFINITY
+        var maxX = Double.NEGATIVE_INFINITY; var maxY = Double.NEGATIVE_INFINITY
+        for (b in boundsList) {
+            if (b.minX < minX) minX = b.minX
+            if (b.minY < minY) minY = b.minY
+            if (b.maxX > maxX) maxX = b.maxX
+            if (b.maxY > maxY) maxY = b.maxY
+        }
+        val extents = BoundingBox(minX, minY, maxX, maxY)
+
+        // displayExtents: 엔티티의 중심점들로 5/95 percentile 영역만 사용 (아웃라이어 제거)
+        val centersX = DoubleArray(boundsList.size) { (boundsList[it].minX + boundsList[it].maxX) * 0.5 }
+        val centersY = DoubleArray(boundsList.size) { (boundsList[it].minY + boundsList[it].maxY) * 0.5 }
+        centersX.sort(); centersY.sort()
+        val trim = (boundsList.size * 0.05).toInt().coerceAtLeast(0)
+        val loIdx = trim; val hiIdx = boundsList.size - 1 - trim
+        val displayExtents = if (loIdx < hiIdx) {
+            BoundingBox(centersX[loIdx], centersY[loIdx], centersX[hiIdx], centersY[hiIdx])
+        } else extents
+
+        return extents to displayExtents
     }
 
     private fun decodeLayers(buf: ByteBuffer, count: Int): List<Layer> =

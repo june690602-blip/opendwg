@@ -3,6 +3,7 @@ package io.github.june690602_blip.cleancad.ui
 import android.app.Application
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.june690602_blip.cleancad.NativeDwg
@@ -24,6 +25,7 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value is DrawingState.Loading) return
         viewModelScope.launch {
             _state.value = DrawingState.Loading
+            Log.i(TAG, "load: start uri=$uri")
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val ctx = getApplication<Application>()
@@ -38,20 +40,38 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                     val dwgFile = File(ctx.cacheDir, "dwg_$tag.dwg")
                     val stream = ctx.contentResolver.openInputStream(uri)
                         ?: throw IOException("파일을 열 수 없습니다: $uri")
+                    val t0 = System.currentTimeMillis()
                     stream.use { it.copyTo(dwgFile.outputStream()) }
+                    val t1 = System.currentTimeMillis()
+                    Log.i(TAG, "load: copied ${dwgFile.length()} bytes to cache in ${t1 - t0}ms ($displayName)")
 
                     val drawing = NativeDwg.parseToDrawing(dwgFile.absolutePath)
+                    val t2 = System.currentTimeMillis()
+                    Log.i(
+                        TAG,
+                        "load: parsed in ${t2 - t1}ms — entities=${drawing.entities.size}, " +
+                            "layers=${drawing.layers.size}, " +
+                            "entityColors=${drawing.entityColors.size}, " +
+                            "extents=${drawing.extents}, " +
+                            "displayExtents=${drawing.displayExtents}"
+                    )
                     Triple(drawing, displayName, uri)
                 }
             }
             result.fold(
                 onSuccess = { (drawing, displayName, loadedUri) ->
+                    Log.i(TAG, "load: SUCCESS — ${drawing.entities.size} entities")
                     _state.value = DrawingState.Success(drawing, displayName, loadedUri)
                 },
                 onFailure = { e ->
+                    Log.e(TAG, "load: FAILURE", e)
                     _state.value = DrawingState.Error(e.message ?: "알 수 없는 오류")
                 }
             )
         }
+    }
+
+    private companion object {
+        private const val TAG = "CleanCAD/ViewModel"
     }
 }

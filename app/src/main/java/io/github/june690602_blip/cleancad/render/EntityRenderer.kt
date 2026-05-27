@@ -73,24 +73,54 @@ class EntityRenderer {
             ?: layerColorMap[entity.layer]
             ?: defaultLineColor
 
-    /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다. */
+    /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다.
+     *  컬링 전략:
+     *   - viewport 밖 엔티티 스킵 (worldBounds vs viewport)
+     *   - 화면상 너무 작아서 점만도 안 보이는 엔티티 스킵 (< 1px)
+     *   - 텍스트는 base 글자 높이가 4px 미만이면 스킵 (zoom out 상태에서 까만 덩어리 방지) */
     fun drawAll(
         entities: List<DxfEntity>,
         canvas: Canvas,
         matrix: Matrix,
         viewport: BoundingBox? = null
     ) {
+        val scale = CoordTransform.currentScale(matrix)
         entities.forEach { entity ->
             if (entity !is DxfText && entity !is DxfMText) {
                 val bounds = entity.worldBounds()
-                if (bounds == null || viewport == null || bounds.intersects(viewport)) {
-                    draw(entity, canvas, matrix)
+                if (bounds != null) {
+                    if (viewport != null && !bounds.intersects(viewport)) return@forEach
+                    // 화면상 1px 미만이면 스킵
+                    val pixW = bounds.width * scale
+                    val pixH = bounds.height * scale
+                    if (pixW < 1.0 && pixH < 1.0) return@forEach
                 }
+                draw(entity, canvas, matrix)
             }
         }
         entities.forEach { entity ->
-            if (entity is DxfText || entity is DxfMText) draw(entity, canvas, matrix)
+            when (entity) {
+                is DxfText -> {
+                    val pixSize = entity.height * scale
+                    if (pixSize >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                }
+                is DxfMText -> {
+                    val pixSize = entity.height * scale
+                    if (pixSize >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                }
+                else -> { /* already drawn in first pass */ }
+            }
         }
+    }
+
+    private companion object {
+        /** zoom out 상태에서 글자 자체가 이 픽셀 수보다 작아지면 렌더 자체를 스킵.
+         *  까만 글자 덩어리(수많은 작은 텍스트 mass) 방지. */
+        const val MIN_TEXT_BASE_PIXELS: Double = 4.0
+
+        /** HATCH 솔리드 채우기 알파 — 0x40 = 25% 불투명도 (반투명).
+         *  패턴 hatch가 미지원이라 검정 솔리드 덩어리 방지 목적. */
+        const val HATCH_FILL_ALPHA_MASK: Int = 0x40000000
     }
 
     private fun draw(entity: DxfEntity, canvas: Canvas, matrix: Matrix) {
@@ -207,11 +237,14 @@ class EntityRenderer {
             path.close()
         }
         if (e.isSolid) {
-            fillPaint.color = linePaint.color
+            // 패턴 hatch 미지원 → 솔리드도 25% 알파로 반투명 채움
+            // (검은 덩어리로 다른 도형 가리는 문제 방지)
+            val baseColor = linePaint.color
+            fillPaint.color = (baseColor and 0x00FFFFFF) or HATCH_FILL_ALPHA_MASK
             canvas.drawPath(path, fillPaint)
-        } else {
-            canvas.drawPath(path, linePaint)
         }
+        // 경계는 항상 그림 (솔리드든 패턴이든 boundary 시각화)
+        canvas.drawPath(path, linePaint)
     }
 
     private fun drawEllipse(e: DxfEllipse, canvas: Canvas, matrix: Matrix) {
