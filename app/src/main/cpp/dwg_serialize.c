@@ -134,6 +134,195 @@ static void write_entity_header(Writer *w, const Dwg_Data *dwg,
 
 /* ---- 엔티티 ---- */
 
+/* ---- 9a-1: POLYLINE 계열 ---- */
+
+static void write_lwpolyline(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_LWPOLYLINE *e = obj->tio.entity->tio.LWPOLYLINE;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
+    uint8_t closed = ((e->flag & 1) || (e->flag & 512)) ? 1 : 0;
+    w_u8(w, closed);
+    w_i32(w, (int32_t)e->num_points);
+    for (BITCODE_BL i = 0; i < e->num_points; ++i) {
+        w_f64(w, e->points[i].x); w_f64(w, e->points[i].y);
+    }
+}
+
+static void write_polyline_2d(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_POLYLINE_2D *e = obj->tio.entity->tio.POLYLINE_2D;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_POLYLINE_2D);
+    uint8_t closed = (e->flag & 1) ? 1 : 0;
+    w_u8(w, closed);
+    BITCODE_BL n = e->num_owned;
+    w_i32(w, (int32_t)n);
+    for (BITCODE_BL i = 0; i < n; ++i) {
+        if (!e->vertex || !e->vertex[i] || !e->vertex[i]->obj) {
+            w_f64(w, 0.0); w_f64(w, 0.0); continue;
+        }
+        Dwg_Entity_VERTEX_2D *v = e->vertex[i]->obj->tio.entity->tio.VERTEX_2D;
+        w_f64(w, v->point.x); w_f64(w, v->point.y);
+    }
+}
+
+static void write_polyline_3d(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_POLYLINE_3D *e = obj->tio.entity->tio.POLYLINE_3D;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_POLYLINE_3D);
+    uint8_t closed = (e->flag & 1) ? 1 : 0;
+    w_u8(w, closed);
+    BITCODE_BL n = e->num_owned;
+    w_i32(w, (int32_t)n);
+    for (BITCODE_BL i = 0; i < n; ++i) {
+        if (!e->vertex || !e->vertex[i] || !e->vertex[i]->obj) {
+            w_f64(w, 0.0); w_f64(w, 0.0); continue;
+        }
+        Dwg_Entity_VERTEX_3D *v = e->vertex[i]->obj->tio.entity->tio.VERTEX_3D;
+        w_f64(w, v->point.x); w_f64(w, v->point.y);
+    }
+}
+
+/* ---- 9a-2: TEXT / MTEXT ---- */
+
+static void write_text(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_TEXT *e = obj->tio.entity->tio.TEXT;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_TEXT);
+    w_f64(w, e->ins_pt.x); w_f64(w, e->ins_pt.y);
+    w_f64(w, e->height);
+    double rot_deg = e->rotation * 180.0 / 3.14159265358979323846;
+    w_f64(w, rot_deg);
+    char *utf8 = tv_to_utf8(dwg, e->text_value);
+    w_string_utf8(w, utf8 ? utf8 : "");
+    free(utf8);
+}
+
+static void write_mtext(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_MTEXT *e = obj->tio.entity->tio.MTEXT;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_MTEXT);
+    w_f64(w, e->ins_pt.x); w_f64(w, e->ins_pt.y);
+    w_f64(w, e->text_height);
+    /* MTEXT rotation은 x_axis_dir 벡터로부터 계산 */
+    double rot_rad = atan2(e->x_axis_dir.y, e->x_axis_dir.x);
+    double rot_deg = rot_rad * 180.0 / 3.14159265358979323846;
+    w_f64(w, rot_deg);
+    char *utf8 = tv_to_utf8(dwg, e->text);
+    w_string_utf8(w, utf8 ? utf8 : "");
+    free(utf8);
+}
+
+/* ---- 9a-3: 3DFACE / SOLID / ELLIPSE / SPLINE ---- */
+
+static void write_3dface(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity__3DFACE *e = obj->tio.entity->tio._3DFACE;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_3DFACE);
+    w_f64(w, e->corner1.x); w_f64(w, e->corner1.y);
+    w_f64(w, e->corner2.x); w_f64(w, e->corner2.y);
+    w_f64(w, e->corner3.x); w_f64(w, e->corner3.y);
+    w_f64(w, e->corner4.x); w_f64(w, e->corner4.y);
+}
+
+static void write_solid(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    /* SOLID corners are BITCODE_2RD (2D points) */
+    Dwg_Entity_SOLID *e = obj->tio.entity->tio.SOLID;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_SOLID);
+    w_f64(w, e->corner1.x); w_f64(w, e->corner1.y);
+    w_f64(w, e->corner2.x); w_f64(w, e->corner2.y);
+    w_f64(w, e->corner3.x); w_f64(w, e->corner3.y);
+    w_f64(w, e->corner4.x); w_f64(w, e->corner4.y);
+}
+
+static void write_ellipse(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_ELLIPSE *e = obj->tio.entity->tio.ELLIPSE;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_ELLIPSE);
+    w_f64(w, e->center.x); w_f64(w, e->center.y);
+    w_f64(w, e->sm_axis.x); w_f64(w, e->sm_axis.y);
+    w_f64(w, e->axis_ratio);
+    w_f64(w, e->start_angle); w_f64(w, e->end_angle);
+}
+
+static void write_spline(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    /* SPLINE ctrl_pts are Dwg_SPLINE_control_point with .x, .y, .z, .w members */
+    Dwg_Entity_SPLINE *e = obj->tio.entity->tio.SPLINE;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_SPLINE);
+    w_i32(w, (int32_t)e->degree);
+    w_i32(w, (int32_t)e->num_ctrl_pts);
+    for (BITCODE_BL i = 0; i < e->num_ctrl_pts; ++i) {
+        w_f64(w, e->ctrl_pts[i].x); w_f64(w, e->ctrl_pts[i].y);
+    }
+}
+
+/* ---- 9a-4: DIMENSION / LEADER ---- */
+
+static void write_dimension(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    /* 모든 DIMENSION_* sub-type은 DIMENSION_COMMON 매크로를 공유.
+     * ALIGNED로 캐스팅하여 공통 필드 접근.
+     * def_pt: BITCODE_3BD, text_midpt: BITCODE_2RD */
+    Dwg_Entity_DIMENSION_ALIGNED *e = obj->tio.entity->tio.DIMENSION_ALIGNED;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_DIMENSION);
+    w_f64(w, e->def_pt.x); w_f64(w, e->def_pt.y);
+    w_f64(w, e->text_midpt.x); w_f64(w, e->text_midpt.y);
+    w_i32(w, 0);  /* dimType — 단순화 */
+    char *utf8 = tv_to_utf8(dwg, e->user_text);
+    w_string_utf8(w, utf8 ? utf8 : "");
+    free(utf8);
+}
+
+static void write_leader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_LEADER *e = obj->tio.entity->tio.LEADER;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_LEADER);
+    w_i32(w, (int32_t)e->num_points);
+    for (BITCODE_BL i = 0; i < e->num_points; ++i) {
+        w_f64(w, e->points[i].x); w_f64(w, e->points[i].y);
+    }
+}
+
+/* ---- 9a-5: HATCH ---- */
+
+static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Entity_HATCH *e = obj->tio.entity->tio.HATCH;
+    write_entity_header(w, dwg, obj, DWGB_TYPE_HATCH);
+    uint8_t isSolid = e->is_solid_fill ? 1 : 0;
+    w_u8(w, isSolid);
+
+    /* Placeholder for num_paths — filled after loop */
+    size_t pos_num_paths = w->len;
+    w_i32(w, 0);
+    int32_t actual_paths = 0;
+
+    for (BITCODE_BL p = 0; p < e->num_paths; ++p) {
+        Dwg_HATCH_Path *path = &e->paths[p];
+        int is_polyline = (path->flag & 2) != 0;
+
+        /* Placeholder for num_verts */
+        size_t pos_num_verts = w->len;
+        w_i32(w, 0);
+        int32_t nv = 0;
+
+        if (is_polyline) {
+            /* Polyline path: count is also num_segs_or_paths */
+            for (BITCODE_BL v = 0; v < path->num_segs_or_paths; ++v) {
+                w_f64(w, path->polyline_paths[v].point.x);
+                w_f64(w, path->polyline_paths[v].point.y);
+                nv++;
+            }
+        } else {
+            /* Segment path: only emit LINE segments (curve_type == 1) */
+            for (BITCODE_BL s = 0; s < path->num_segs_or_paths; ++s) {
+                Dwg_HATCH_PathSeg *seg = &path->segs[s];
+                if (seg->curve_type == 1) {
+                    w_f64(w, seg->first_endpoint.x); w_f64(w, seg->first_endpoint.y);
+                    w_f64(w, seg->second_endpoint.x); w_f64(w, seg->second_endpoint.y);
+                    nv += 2;
+                }
+            }
+        }
+        if (!w->ok) return;
+        memcpy(w->buf + pos_num_verts, &nv, 4);
+        if (nv > 0) actual_paths++;
+    }
+    if (!w->ok) return;
+    memcpy(w->buf + pos_num_paths, &actual_paths, 4);
+}
+
+/* ---- Basic entities ---- */
+
 static void write_line(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj) {
     Dwg_Entity_LINE *e = obj->tio.entity->tio.LINE;
     write_entity_header(w, dwg, obj, DWGB_TYPE_LINE);
@@ -194,7 +383,31 @@ uint8_t *dwgb_serialize(const Dwg_Data *dwg, size_t *out_len) {
             case DWG_TYPE_LINE:   write_line  (&w, dwg, obj); n_entities++; break;
             case DWG_TYPE_CIRCLE: write_circle(&w, dwg, obj); n_entities++; break;
             case DWG_TYPE_ARC:    write_arc   (&w, dwg, obj); n_entities++; break;
-            default: break;  /* Task 9~10에서 더 추가 */
+            /* 9a-1: POLYLINE 계열 */
+            case DWG_TYPE_LWPOLYLINE:  write_lwpolyline (&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_POLYLINE_2D: write_polyline_2d(&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_POLYLINE_3D: write_polyline_3d(&w, dwg, obj); n_entities++; break;
+            /* 9a-2: TEXT / MTEXT */
+            case DWG_TYPE_TEXT:  write_text (&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_MTEXT: write_mtext(&w, dwg, obj); n_entities++; break;
+            /* 9a-3: 3DFACE / SOLID / ELLIPSE / SPLINE */
+            case DWG_TYPE__3DFACE: write_3dface (&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_SOLID:   write_solid  (&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_ELLIPSE: write_ellipse(&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_SPLINE:  write_spline (&w, dwg, obj); n_entities++; break;
+            /* 9a-4: DIMENSION / LEADER */
+            case DWG_TYPE_DIMENSION_ALIGNED:
+            case DWG_TYPE_DIMENSION_LINEAR:
+            case DWG_TYPE_DIMENSION_ANG3PT:
+            case DWG_TYPE_DIMENSION_ANG2LN:
+            case DWG_TYPE_DIMENSION_RADIUS:
+            case DWG_TYPE_DIMENSION_DIAMETER:
+            case DWG_TYPE_DIMENSION_ORDINATE:
+                write_dimension(&w, dwg, obj); n_entities++; break;
+            case DWG_TYPE_LEADER: write_leader(&w, dwg, obj); n_entities++; break;
+            /* 9a-5: HATCH */
+            case DWG_TYPE_HATCH: write_hatch(&w, dwg, obj); n_entities++; break;
+            default: break;  /* INSERT は Task 9b で追加 */
         }
         if (!w.ok) break;
     }
