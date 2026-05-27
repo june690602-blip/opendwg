@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define DWGB_MAX_INSERT_DEPTH 5
+#define DWGB_MAX_ENTITIES 100000
+
 typedef struct {
     uint8_t *buf;
     size_t   len;
@@ -375,12 +378,52 @@ static void write_spline(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
 
 /* ---- 9a-4: DIMENSION / LEADER ---- */
 
+/* write_dimension expands anonymous blocks via write_entity (forward declared here) */
+static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                         double tx, double ty, double sx, double sy, double rot,
+                         int depth, int *count_ptr);
+
 static void write_dimension(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
-                            double tx, double ty, double sx, double sy, double rot) {
+                            double tx, double ty, double sx, double sy, double rot,
+                            int depth, int *count_ptr) {
     /* 모든 DIMENSION_* sub-type은 DIMENSION_COMMON 매크로를 공유.
-     * ALIGNED로 캐스팅하여 공통 필드 접근.
-     * def_pt: BITCODE_3BD, text_midpt: BITCODE_2RD */
+     * ALIGNED로 캐스팅하여 공통 필드 접근. */
     Dwg_Entity_DIMENSION_ALIGNED *e = obj->tio.entity->tio.DIMENSION_ALIGNED;
+
+    /* anonymous block이 있으면 그 안의 자식 엔티티(LINE/SOLID/MTEXT 등)를
+     * world-coord 그대로 전개한다. 이미 WCS이므로 identity transform 사용. */
+    if (e->block && e->block->obj
+        && e->block->obj->fixedtype == DWG_TYPE_BLOCK_HEADER) {
+        Dwg_Object_BLOCK_HEADER *bh = e->block->obj->tio.object->tio.BLOCK_HEADER;
+        if (bh) {
+            int expanded = 0;
+            if (bh->entities && bh->num_owned > 0) {
+                for (BITCODE_BL i = 0; i < bh->num_owned; ++i) {
+                    if (*count_ptr >= DWGB_MAX_ENTITIES) break;
+                    if (!bh->entities[i] || !bh->entities[i]->obj) continue;
+                    write_entity(w, dwg, bh->entities[i]->obj,
+                                 0.0, 0.0, 1.0, 1.0, 0.0, depth + 1, count_ptr);
+                    expanded++;
+                }
+            } else if (bh->first_entity && bh->first_entity->obj
+                       && bh->last_entity && bh->last_entity->obj) {
+                BITCODE_RL start = bh->first_entity->obj->index;
+                BITCODE_RL end   = bh->last_entity->obj->index;
+                if (end >= dwg->num_objects) end = (BITCODE_RL)(dwg->num_objects - 1);
+                for (BITCODE_RL i = start; i <= end; ++i) {
+                    if (*count_ptr >= DWGB_MAX_ENTITIES) break;
+                    const Dwg_Object *child = &dwg->object[i];
+                    if (child->supertype != DWG_SUPERTYPE_ENTITY) continue;
+                    write_entity(w, dwg, child, 0.0, 0.0, 1.0, 1.0, 0.0,
+                                 depth + 1, count_ptr);
+                    expanded++;
+                }
+            }
+            if (expanded > 0) return;
+        }
+    }
+
+    /* fallback: anonymous block 없거나 비었을 때 — def_pt→text_midpt 직선 */
     write_entity_header(w, dwg, obj, DWGB_TYPE_DIMENSION);
     double dpx = e->def_pt.x, dpy = e->def_pt.y;
     double tmpx = e->text_midpt.x, tmpy = e->text_midpt.y;
@@ -390,10 +433,11 @@ static void write_dimension(Writer *w, const Dwg_Data *dwg, const Dwg_Object *ob
     }
     w_f64(w, dpx); w_f64(w, dpy);
     w_f64(w, tmpx); w_f64(w, tmpy);
-    w_i32(w, 0);  /* dimType — 단순화 */
+    w_i32(w, 0);
     char *utf8 = tv_to_utf8(dwg, e->user_text);
     w_string_utf8(w, utf8 ? utf8 : "");
     free(utf8);
+    (*count_ptr)++;
 }
 
 static void write_leader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -519,14 +563,6 @@ static void write_arc(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
 
 /* ---- 9b: INSERT 재귀 전개 ---- */
 
-#define DWGB_MAX_INSERT_DEPTH 5
-#define DWGB_MAX_ENTITIES 100000
-
-/* Forward declaration */
-static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
-                         double tx, double ty, double sx, double sy, double rot,
-                         int depth, int *count_ptr);
-
 static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                          double tx, double ty, double sx, double sy, double rot,
                          int depth, int *count_ptr) {
@@ -607,7 +643,7 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
         case DWG_TYPE_DIMENSION_RADIUS:
         case DWG_TYPE_DIMENSION_DIAMETER:
         case DWG_TYPE_DIMENSION_ORDINATE:
-            write_dimension(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
+            write_dimension(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
         case DWG_TYPE_INSERT:
             write_insert(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
         default: break;
