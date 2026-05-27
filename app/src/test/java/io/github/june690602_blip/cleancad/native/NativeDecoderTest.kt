@@ -234,4 +234,77 @@ class NativeDecoderTest {
         assertTrue(m.text.contains("두께 200"))
         assertEquals(45.0, m.rotationDeg, 1e-9)
     }
+
+    private fun fourCornerEntity(
+        typeId: Int, layerIdx: Int, corners: List<Pair<Double, Double>>
+    ): ByteArray {
+        require(corners.size == 4)
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 8).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(typeId.toByte())
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        corners.forEach { (x, y) -> b.putDouble(x); b.putDouble(y) }
+        return b.array()
+    }
+
+    @Test
+    fun decode_3dface() {
+        val drawing = NativeDecoder.decode(buildBuffer(
+            entities = listOf(fourCornerEntity(
+                NativeProtocol.TYPE_3DFACE, -1,
+                listOf(0.0 to 0.0, 10.0 to 0.0, 10.0 to 10.0, 0.0 to 10.0)
+            ))
+        ))
+        val f = drawing.entities[0] as io.github.june690602_blip.cleancad.model.Dxf3DFace
+        assertEquals(10.0, f.corner3.x, 1e-9)
+    }
+
+    @Test
+    fun decode_solid_legacyVertexOrder() {
+        // C 측이 1-2-3-4 순서로 직렬화한다고 가정 (legacy 1-2-4-3은 EntityRenderer.drawSolid가 처리)
+        val drawing = NativeDecoder.decode(buildBuffer(
+            entities = listOf(fourCornerEntity(
+                NativeProtocol.TYPE_SOLID, -1,
+                listOf(0.0 to 0.0, 10.0 to 0.0, 0.0 to 10.0, 10.0 to 10.0)
+            ))
+        ))
+        val s = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfSolid
+        assertEquals(0.0, s.corner3.x, 1e-9)
+        assertEquals(10.0, s.corner4.x, 1e-9)
+    }
+
+    @Test
+    fun decode_ellipse() {
+        val b = ByteBuffer.allocate(80).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_ELLIPSE.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.putDouble(0.0); b.putDouble(0.0)  // center
+        b.putDouble(5.0); b.putDouble(0.0)  // majorAxis
+        b.putDouble(0.5)                    // minorRatio
+        b.putDouble(0.0); b.putDouble(Math.PI)  // params
+        val entity = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
+        val e = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfEllipse
+        assertEquals(0.5, e.minorRatio, 1e-9)
+        assertEquals(5.0, e.majorAxis.x, 1e-9)
+    }
+
+    @Test
+    fun decode_spline() {
+        val b = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_SPLINE.toByte())
+        b.putInt(-1); b.putShort(-1); b.putInt(0)
+        b.putInt(3)         // degree
+        b.putInt(2)         // n_ctrl
+        b.putDouble(0.0); b.putDouble(0.0)
+        b.putDouble(1.0); b.putDouble(1.0)
+        val entity = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+
+        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
+        val s = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfSpline
+        assertEquals(3, s.degree)
+        assertEquals(2, s.controlPoints.size)
+    }
 }

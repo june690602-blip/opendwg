@@ -1,14 +1,18 @@
 package io.github.june690602_blip.cleancad.native
 
 import io.github.june690602_blip.cleancad.model.BoundingBox
+import io.github.june690602_blip.cleancad.model.Dxf3DFace
 import io.github.june690602_blip.cleancad.model.Drawing
 import io.github.june690602_blip.cleancad.model.DxfArc
 import io.github.june690602_blip.cleancad.model.DxfCircle
+import io.github.june690602_blip.cleancad.model.DxfEllipse
 import io.github.june690602_blip.cleancad.model.DxfEntity
 import io.github.june690602_blip.cleancad.model.DxfLine
 import io.github.june690602_blip.cleancad.model.DxfLwPolyline
 import io.github.june690602_blip.cleancad.model.DxfMText
 import io.github.june690602_blip.cleancad.model.DxfPolyline
+import io.github.june690602_blip.cleancad.model.DxfSolid
+import io.github.june690602_blip.cleancad.model.DxfSpline
 import io.github.june690602_blip.cleancad.model.DxfText
 import io.github.june690602_blip.cleancad.model.Layer
 import io.github.june690602_blip.cleancad.model.Vec2
@@ -73,6 +77,10 @@ object NativeDecoder {
                 NativeProtocol.TYPE_POLYLINE_3D     -> decodePolyline(buf, layerName)
                 NativeProtocol.TYPE_TEXT            -> decodeText(buf, layerName)
                 NativeProtocol.TYPE_MTEXT           -> decodeMText(buf, layerName)
+                NativeProtocol.TYPE_3DFACE          -> decode3dFace(buf, layerName)
+                NativeProtocol.TYPE_SOLID           -> decodeSolid(buf, layerName)
+                NativeProtocol.TYPE_ELLIPSE         -> decodeEllipse(buf, layerName)
+                NativeProtocol.TYPE_SPLINE          -> decodeSpline(buf, layerName)
                 else -> {
                     skipUnknownPayload(buf, typeId)
                     null
@@ -131,6 +139,31 @@ object NativeDecoder {
         val len = buf.short.toInt() and 0xFFFF
         val bytes = ByteArray(len); buf.get(bytes)
         return DxfMText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot)
+    }
+
+    private fun decode3dFace(buf: ByteBuffer, layer: String): Dxf3DFace {
+        val c1 = Vec2(buf.double, buf.double); val c2 = Vec2(buf.double, buf.double)
+        val c3 = Vec2(buf.double, buf.double); val c4 = Vec2(buf.double, buf.double)
+        return Dxf3DFace(layer, c1, c2, c3, c4)
+    }
+
+    private fun decodeSolid(buf: ByteBuffer, layer: String): DxfSolid {
+        val c1 = Vec2(buf.double, buf.double); val c2 = Vec2(buf.double, buf.double)
+        val c3 = Vec2(buf.double, buf.double); val c4 = Vec2(buf.double, buf.double)
+        return DxfSolid(layer, c1, c2, c3, c4)
+    }
+
+    private fun decodeEllipse(buf: ByteBuffer, layer: String): DxfEllipse {
+        val center = Vec2(buf.double, buf.double)
+        val major = Vec2(buf.double, buf.double)
+        val ratio = buf.double; val start = buf.double; val end = buf.double
+        return DxfEllipse(layer, center, major, ratio, start, end)
+    }
+
+    private fun decodeSpline(buf: ByteBuffer, layer: String): DxfSpline {
+        val degree = buf.int; val n = buf.int
+        val ctrl = List(n) { Vec2(buf.double, buf.double) }
+        return DxfSpline(layer, degree, ctrl)
     }
 
     /** UNKNOWN 또는 아직 미지원 타입의 페이로드를 건너뛴다. Task 별로 케이스 추가. */
