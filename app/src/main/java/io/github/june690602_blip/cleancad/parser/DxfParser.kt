@@ -129,7 +129,8 @@ object DxfParser {
             is DxfDimension  -> e.copy(definitionPoint = tp(e.definitionPoint),
                                        textMidPoint   = tp(e.textMidPoint))
             is DxfLeader     -> e.copy(vertices = e.vertices.map { tp(it) })
-            is DxfHatch, is DxfUnknown -> null
+            is DxfHatch      -> e.copy(paths = e.paths.map { path -> path.map { tp(it) } })
+            is DxfUnknown    -> null
         }
     }
 
@@ -546,16 +547,84 @@ object DxfParser {
     }
 
     private fun parseHatch(reader: DxfReader): DxfHatch {
-        var layer = "0"; var isSolid = false
+        var layer = "0"
+        var isSolid = false
+        var numPaths = 0
+        val paths = mutableListOf<List<Vec2>>()
+
         while (reader.hasNext()) {
-            val gc = reader.peek() ?: break; if (gc.code == 0) break
+            val gc = reader.peek() ?: break
+            if (gc.code == 0) return DxfHatch(layer, isSolid, paths)
             val next = reader.next()
             when (next.code) {
                 8  -> layer = next.value
                 70 -> isSolid = next.value.trim() == "1"
+                91 -> { numPaths = next.value.toIntOrNull() ?: 0; break }
             }
         }
-        return DxfHatch(layer, isSolid)
+
+        repeat(numPaths) {
+            val path = parseHatchBoundaryPath(reader) ?: return@repeat
+            if (path.isNotEmpty()) paths.add(path)
+        }
+
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break
+            if (gc.code == 0) break
+            reader.next()
+        }
+
+        return DxfHatch(layer, isSolid, paths)
+    }
+
+    private fun parseHatchBoundaryPath(reader: DxfReader): List<Vec2>? {
+        var isPolyline = false
+        var sawNumItems = false
+        val vertices = mutableListOf<Vec2>()
+        var lastVx = 0.0; var lastVy = 0.0; var sawLastVx = false
+
+        while (reader.hasNext()) {
+            val gc = reader.peek() ?: break
+            if (gc.code == 0) break
+            if (gc.code == 97) break
+            if (gc.code == 75) break
+            if (gc.code == 92 && sawNumItems) break
+
+            val next = reader.next()
+            when (next.code) {
+                92 -> {
+                    val pathTypeFlag = next.value.toIntOrNull() ?: 0
+                    isPolyline = (pathTypeFlag and 2) != 0
+                }
+                93 -> {
+                    sawNumItems = true
+                }
+                72 -> {
+                    if (!isPolyline) {
+                        sawLastVx = false
+                    }
+                }
+                10 -> {
+                    lastVx = next.value.toDouble(); sawLastVx = true
+                }
+                20 -> {
+                    if (sawLastVx) {
+                        vertices.add(Vec2(lastVx, next.value.toDouble()))
+                        sawLastVx = false
+                    }
+                }
+                11 -> {
+                    if (!isPolyline) { lastVx = next.value.toDouble(); sawLastVx = true }
+                }
+                21 -> {
+                    if (!isPolyline && sawLastVx) {
+                        vertices.add(Vec2(lastVx, next.value.toDouble()))
+                        sawLastVx = false
+                    }
+                }
+            }
+        }
+        return vertices
     }
 
     private fun parseLeader(reader: DxfReader): DxfLeader {
@@ -604,7 +673,8 @@ object DxfParser {
                 is DxfInsert     -> points.add(entity.insertionPoint)
                 is DxfDimension  -> { points.add(entity.definitionPoint); points.add(entity.textMidPoint) }
                 is DxfLeader     -> points.addAll(entity.vertices)
-                is DxfHatch, is DxfUnknown -> {}
+                is DxfHatch      -> entity.paths.forEach { points.addAll(it) }
+                is DxfUnknown    -> {}
             }
         }
         return points

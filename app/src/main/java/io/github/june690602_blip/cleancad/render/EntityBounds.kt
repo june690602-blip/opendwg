@@ -35,6 +35,13 @@ fun DxfEntity.worldBounds(): BoundingBox? = when (this) {
         maxOf(corner1.x, corner2.x, corner3.x, corner4.x),
         maxOf(corner1.y, corner2.y, corner3.y, corner4.y)
     )
+    is DxfHatch      -> {
+        val allPts = paths.flatten()
+        if (allPts.isEmpty()) null else BoundingBox(
+            allPts.minOf { it.x }, allPts.minOf { it.y },
+            allPts.maxOf { it.x }, allPts.maxOf { it.y }
+        )
+    }
     else -> null
 }
 

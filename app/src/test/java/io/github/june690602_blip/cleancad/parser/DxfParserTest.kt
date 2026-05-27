@@ -463,15 +463,14 @@ override""".trimIndent())
 HATCH
   8
 0
- 10
-0.0
- 20
-0.0
  70
-1""".trimIndent())
+1
+ 91
+0""".trimIndent())
 
         val hatch = DxfParser.parse(dxf).entities[0] as DxfHatch
         assertTrue(hatch.isSolid)
+        assertEquals(0, hatch.paths.size)
     }
 
     // ---- LEADER ----
@@ -714,6 +713,113 @@ fills
     }
 
     // ---- displayExtents (아웃라이어 필터링) ----
+
+    // ---- HATCH polyline boundary ----
+
+    @Test
+    fun parseHatch_polylineBoundary_collectsVertices() {
+        val dxf = withEntities("""
+  0
+HATCH
+  8
+fills
+ 70
+1
+ 91
+1
+ 92
+2
+ 72
+0
+ 73
+1
+ 93
+4
+ 10
+0.0
+ 20
+0.0
+ 10
+10.0
+ 20
+0.0
+ 10
+10.0
+ 20
+10.0
+ 10
+0.0
+ 20
+10.0""".trimIndent())
+
+        val hatch = DxfParser.parse(dxf).entities[0] as DxfHatch
+        assertTrue(hatch.isSolid)
+        assertEquals(1, hatch.paths.size)
+        assertEquals(4, hatch.paths[0].size)
+        assertEquals(Vec2(0.0, 0.0),   hatch.paths[0][0])
+        assertEquals(Vec2(10.0, 10.0), hatch.paths[0][2])
+    }
+
+    @Test
+    fun parseHatch_lineEdgeBoundary_collectsVertices() {
+        val dxf = withEntities("""
+  0
+HATCH
+  8
+fills
+ 70
+0
+ 91
+1
+ 92
+0
+ 93
+4
+ 72
+1
+ 10
+0.0
+ 20
+0.0
+ 11
+10.0
+ 21
+0.0
+ 72
+1
+ 10
+10.0
+ 20
+0.0
+ 11
+10.0
+ 21
+10.0
+ 72
+1
+ 10
+10.0
+ 20
+10.0
+ 11
+0.0
+ 21
+10.0
+ 72
+1
+ 10
+0.0
+ 20
+10.0
+ 11
+0.0
+ 21
+0.0""".trimIndent())
+
+        val hatch = DxfParser.parse(dxf).entities[0] as DxfHatch
+        assertEquals(1, hatch.paths.size)
+        assertEquals(8, hatch.paths[0].size)
+    }
 
     @Test
     fun trimmedBoundingBox_ignoresOutliers() {

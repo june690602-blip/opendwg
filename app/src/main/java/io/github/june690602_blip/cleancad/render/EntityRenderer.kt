@@ -81,7 +81,8 @@ class EntityRenderer {
             is DxfMText      -> drawMText(entity, canvas, matrix)
             is DxfDimension  -> drawDimension(entity, canvas, matrix)
             is DxfLeader     -> drawLeader(entity, canvas, matrix)
-            is DxfHatch, is DxfInsert, is DxfUnknown -> { /* skip */ }
+            is DxfHatch      -> drawHatch(entity, canvas, matrix)
+            is DxfInsert, is DxfUnknown -> { /* skip */ }
         }
     }
 
@@ -161,6 +162,27 @@ class EntityRenderer {
         path.close()
         fillPaint.color = linePaint.color
         canvas.drawPath(path, fillPaint)
+    }
+
+    private fun drawHatch(e: DxfHatch, canvas: Canvas, matrix: Matrix) {
+        if (e.paths.isEmpty()) return
+        val path = Path()
+        for (boundary in e.paths) {
+            if (boundary.size < 2) continue
+            val first = CoordTransform.worldToScreen(boundary[0], matrix)
+            path.moveTo(first.x, first.y)
+            for (i in 1 until boundary.size) {
+                val pt = CoordTransform.worldToScreen(boundary[i], matrix)
+                path.lineTo(pt.x, pt.y)
+            }
+            path.close()
+        }
+        if (e.isSolid) {
+            fillPaint.color = linePaint.color
+            canvas.drawPath(path, fillPaint)
+        } else {
+            canvas.drawPath(path, linePaint)
+        }
     }
 
     private fun drawEllipse(e: DxfEllipse, canvas: Canvas, matrix: Matrix) {
