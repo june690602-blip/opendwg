@@ -18,8 +18,9 @@ object DxfParser {
             mr.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: mr.value
         }
 
-    /** 렌더링 성능을 보장하기 위한 최대 엔티티 수. 이 값을 초과하면 확장을 중단한다. */
-    private const val MAX_ENTITIES = 50_000
+    /** 렌더링 성능을 보장하기 위한 최대 엔티티 수. 이 값을 초과하면 INSERT 확장을 중단한다.
+     *  Phase 7: 50,000 → 100,000 (대용량 도면 지원, Android 메모리 한계 고려). */
+    private const val MAX_ENTITIES = 100_000
 
     /**
      * 스트리밍 진입점 — 대용량 DXF 파일에 적합.
