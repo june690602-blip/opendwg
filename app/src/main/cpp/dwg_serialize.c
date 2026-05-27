@@ -59,6 +59,73 @@ static char *tv_to_utf8(const Dwg_Data *dwg, BITCODE_TV tv) {
     return r;
 }
 
+/* ---- Layer name → index 캐시 (직렬화 1회 동안만 유효) ---- */
+
+typedef struct {
+    char    *name;      /* malloc된 UTF-8 사본 (NULL 가능) */
+    int32_t  index;
+} LayerCacheEntry;
+
+typedef struct {
+    LayerCacheEntry *entries;
+    int              count;
+    Dwg_Object_LAYER **arr;  /* dwg_getall_LAYER 결과 보관 (한 번만 호출) */
+} LayerCache;
+
+/* 직렬화 한 번에만 유효 — dwgb_serialize 시작/끝에서 init/free */
+static LayerCache g_layer_cache;
+
+static void layer_cache_init(LayerCache *cache, const Dwg_Data *dwg) {
+    cache->entries = NULL;
+    cache->count = 0;
+    cache->arr = dwg_getall_LAYER((Dwg_Data *)dwg);
+    if (!cache->arr) return;
+    /* NULL-terminated 배열의 길이 측정 */
+    int n = 0;
+    while (cache->arr[n]) n++;
+    cache->count = n;
+    cache->entries = (LayerCacheEntry *)calloc((size_t)n, sizeof(LayerCacheEntry));
+    if (!cache->entries) { cache->count = 0; return; }
+    for (int i = 0; i < n; ++i) {
+        Dwg_Object_LAYER *lay = cache->arr[i];
+        cache->entries[i].index = i;
+        if (lay && lay->name) {
+            cache->entries[i].name = tv_to_utf8(dwg, lay->name);
+        }
+    }
+}
+
+static void layer_cache_free(LayerCache *cache) {
+    if (cache->entries) {
+        for (int i = 0; i < cache->count; ++i) free(cache->entries[i].name);
+        free(cache->entries);
+    }
+    if (cache->arr) free(cache->arr);
+    cache->entries = NULL;
+    cache->arr = NULL;
+    cache->count = 0;
+}
+
+static int32_t layer_cache_resolve(const LayerCache *cache,
+                                   const Dwg_Data *dwg, const Dwg_Object *obj) {
+    Dwg_Object_Entity *ent = obj->tio.entity;
+    if (!ent || !ent->layer || !ent->layer->obj) return -1;
+    Dwg_Object_LAYER *lay = ent->layer->obj->tio.object->tio.LAYER;
+    if (!lay || !lay->name) return -1;
+    char *target = tv_to_utf8(dwg, lay->name);
+    if (!target) return -1;
+    int32_t result = -1;
+    for (int i = 0; i < cache->count; ++i) {
+        if (cache->entries[i].name &&
+            strcmp(cache->entries[i].name, target) == 0) {
+            result = cache->entries[i].index;
+            break;
+        }
+    }
+    free(target);
+    return result;
+}
+
 /* ---- 2D affine transform helper ---- */
 /* scale → rotate → translate */
 static void affine_point(double *px, double *py,
@@ -76,14 +143,17 @@ static void affine_point(double *px, double *py,
 /* ---- Layer 테이블 ---- */
 
 static int write_layer_table(Writer *w, const Dwg_Data *dwg) {
-    Dwg_Object_LAYER **layers = dwg_getall_LAYER((Dwg_Data *)dwg);
+    (void)dwg; /* 캐시에서 가져오므로 dwg 직접 사용 안 함 */
     int written = 0;
+    Dwg_Object_LAYER **layers = g_layer_cache.arr;
+    int n = g_layer_cache.count;
     if (!layers) return 0;
-    for (int i = 0; layers[i] != NULL; ++i) {
+    for (int i = 0; i < n; ++i) {
         Dwg_Object_LAYER *lay = layers[i];
-        char *name = tv_to_utf8(dwg, lay->name);
-        w_string_utf8(w, name ? name : "");
-        free(name);
+        if (!lay) continue;
+        const char *cached_name = (g_layer_cache.entries && g_layer_cache.entries[i].name)
+            ? g_layer_cache.entries[i].name : "";
+        w_string_utf8(w, cached_name);
         int16_t ci = (int16_t)(lay->color.index);
         w_i16(w, ci);
         uint32_t rgb = 0;
@@ -98,35 +168,14 @@ static int write_layer_table(Writer *w, const Dwg_Data *dwg) {
         w_u8(w, flags);
         written++;
     }
-    free(layers);
     return written;
 }
 
 /* ---- Entity 헤더 (typeId, layer_idx, color, rgb) ---- */
 
-/* layer handle로부터 우리 테이블 인덱스 찾기 — name 문자열 매칭으로 단순화.
- * Task 11에서 hash로 개선 예정. */
+/* layer handle로부터 우리 테이블 인덱스 찾기 — g_layer_cache 사용 (O(n) 1회 구축). */
 static int32_t resolve_layer_idx(const Dwg_Data *dwg, const Dwg_Object *obj) {
-    Dwg_Object_Entity *ent = obj->tio.entity;
-    if (!ent || !ent->layer || !ent->layer->obj) return -1;
-    Dwg_Object_LAYER *src_lay = ent->layer->obj->tio.object->tio.LAYER;
-    if (!src_lay || !src_lay->name) return -1;
-    char *src_name = tv_to_utf8(dwg, src_lay->name);
-    if (!src_name) return -1;
-
-    Dwg_Object_LAYER **arr = dwg_getall_LAYER((Dwg_Data *)dwg);
-    int32_t idx = -1;
-    if (arr) {
-        for (int i = 0; arr[i] != NULL; ++i) {
-            if (!arr[i]->name) continue;
-            char *nm = tv_to_utf8(dwg, arr[i]->name);
-            if (nm && strcmp(nm, src_name) == 0) { idx = (int32_t)i; free(nm); break; }
-            free(nm);
-        }
-        free(arr);
-    }
-    free(src_name);
-    return idx;
+    return layer_cache_resolve(&g_layer_cache, dwg, obj);
 }
 
 static void write_entity_header(Writer *w, const Dwg_Data *dwg,
@@ -572,6 +621,9 @@ uint8_t *dwgb_serialize(const Dwg_Data *dwg, size_t *out_len) {
     memset(&w, 0, sizeof(Writer));
     w.ok = 1;
 
+    /* 레이어 캐시: 직렬화 동안만 유효 */
+    layer_cache_init(&g_layer_cache, dwg);
+
     /* Header */
     w_u32(&w, DWGB_MAGIC);
     w_u16(&w, DWGB_PROTOCOL_VERSION);
@@ -591,19 +643,46 @@ uint8_t *dwgb_serialize(const Dwg_Data *dwg, size_t *out_len) {
         memcpy(w.buf + pos_num_layers, &nl, 4);
     }
 
-    /* Entities */
+    /* Entities — model-space block의 자식만 순회.
+     * 블록 정의 내부 엔티티들은 INSERT 전개를 통해서만 도달.
+     * Paper-space는 일단 무시 (도면 인쇄 레이아웃은 모바일 뷰어에서 불필요). */
     int n_entities = 0;
-    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
-        const Dwg_Object *obj = &dwg->object[i];
-        if (obj->supertype != DWG_SUPERTYPE_ENTITY) continue;
-        write_entity(&w, dwg, obj, 0.0, 0.0, 1.0, 1.0, 0.0, 0, &n_entities);
-        if (!w.ok || n_entities >= DWGB_MAX_ENTITIES) break;
+    size_t pos_num_entities_final = pos_num_entities;
+    Dwg_Object_BLOCK_HEADER *mspace = NULL;
+    if (dwg->header_vars.BLOCK_RECORD_MSPACE
+        && dwg->header_vars.BLOCK_RECORD_MSPACE->obj) {
+        mspace = dwg->header_vars.BLOCK_RECORD_MSPACE->obj->tio.object->tio.BLOCK_HEADER;
+    }
+    if (mspace && mspace->entities && mspace->num_owned > 0) {
+        for (BITCODE_BL i = 0; i < mspace->num_owned; ++i) {
+            if (n_entities >= DWGB_MAX_ENTITIES || !w.ok) break;
+            if (!mspace->entities[i] || !mspace->entities[i]->obj) continue;
+            write_entity(&w, dwg, mspace->entities[i]->obj,
+                         0.0, 0.0, 1.0, 1.0, 0.0, 0, &n_entities);
+        }
+    } else if (mspace && mspace->first_entity && mspace->first_entity->obj
+               && mspace->last_entity && mspace->last_entity->obj) {
+        /* 폴백: object 인덱스 범위로 순회 */
+        BITCODE_RL start = mspace->first_entity->obj->index;
+        BITCODE_RL end   = mspace->last_entity->obj->index;
+        if (end >= dwg->num_objects) end = (BITCODE_RL)(dwg->num_objects - 1);
+        for (BITCODE_RL i = start; i <= end; ++i) {
+            if (n_entities >= DWGB_MAX_ENTITIES || !w.ok) break;
+            const Dwg_Object *obj = &dwg->object[i];
+            if (obj->supertype != DWG_SUPERTYPE_ENTITY) continue;
+            write_entity(&w, dwg, obj, 0.0, 0.0, 1.0, 1.0, 0.0, 0, &n_entities);
+        }
     }
     if (w.ok) {
-        memcpy(w.buf + pos_num_entities, &n_entities, 4);
+        memcpy(w.buf + pos_num_entities_final, &n_entities, 4);
     }
 
-    if (!w.ok) { free(w.buf); return NULL; }
+    if (!w.ok) {
+        layer_cache_free(&g_layer_cache);
+        free(w.buf);
+        return NULL;
+    }
+    layer_cache_free(&g_layer_cache);
     *out_len = w.len;
     return w.buf;
 }
