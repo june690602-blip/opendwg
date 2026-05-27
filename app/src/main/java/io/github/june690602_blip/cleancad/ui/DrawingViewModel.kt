@@ -6,8 +6,6 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.june690602_blip.cleancad.NativeDwg
-import io.github.june690602_blip.cleancad.parser.DxfCharsetDetector
-import io.github.june690602_blip.cleancad.parser.DxfParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,18 +40,7 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                         ?: throw IOException("파일을 열 수 없습니다: $uri")
                     stream.use { it.copyTo(dwgFile.outputStream()) }
 
-                    val dxfFile = File(ctx.cacheDir, "dwg_$tag.dxf")
-                    val rc = NativeDwg.nativeDwgToDxf(dwgFile.absolutePath, dxfFile.absolutePath)
-                    if (rc != 0) throw RuntimeException("DWG 변환 실패 (코드: $rc)")
-
-                    // readText() 대신 BufferedReader 스트리밍으로 OOM 방지
-                    // 인코딩 자동 감지 (한글: MS949, 일본어: Shift_JIS, 기본: UTF-8)
-                    val charset = dxfFile.inputStream().use {
-                        DxfCharsetDetector.detect(it)
-                    }
-                    val drawing = dxfFile.inputStream().bufferedReader(charset).use {
-                        DxfParser.parse(it)
-                    }
+                    val drawing = NativeDwg.parseToDrawing(dwgFile.absolutePath)
                     Triple(drawing, displayName, uri)
                 }
             }
