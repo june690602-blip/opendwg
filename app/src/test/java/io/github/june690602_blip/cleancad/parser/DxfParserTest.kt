@@ -679,6 +679,40 @@ faces
         assertEquals(Vec2(0.0, 10.0),  face.corner4)
     }
 
+    // ---- SOLID ----
+
+    @Test
+    fun parseSolid_returnsFourCorners() {
+        val dxf = withEntities("""
+  0
+SOLID
+  8
+fills
+ 10
+0.0
+ 20
+0.0
+ 11
+10.0
+ 21
+0.0
+ 12
+0.0
+ 22
+10.0
+ 13
+10.0
+ 23
+10.0""".trimIndent())
+
+        val solid = DxfParser.parse(dxf).entities[0] as DxfSolid
+        assertEquals("fills", solid.layer)
+        assertEquals(Vec2(0.0, 0.0),   solid.corner1)
+        assertEquals(Vec2(10.0, 0.0),  solid.corner2)
+        assertEquals(Vec2(0.0, 10.0),  solid.corner3)
+        assertEquals(Vec2(10.0, 10.0), solid.corner4)
+    }
+
     // ---- displayExtents (아웃라이어 필터링) ----
 
     @Test

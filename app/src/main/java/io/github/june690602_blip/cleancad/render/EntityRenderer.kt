@@ -19,6 +19,11 @@ class EntityRenderer {
         textSize = 14f
     }
 
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.BLACK
+    }
+
     private var bgColor: Int = Color.WHITE
     private var defaultLineColor: Int = Color.BLACK
     private var layerColorMap: Map<String, Int> = emptyMap()
@@ -69,6 +74,7 @@ class EntityRenderer {
             is DxfLwPolyline -> drawLwPolyline(entity, canvas, matrix)
             is DxfPolyline   -> drawPolyline(entity, canvas, matrix)
             is Dxf3DFace     -> draw3dFace(entity, canvas, matrix)
+            is DxfSolid      -> drawSolid(entity, canvas, matrix)
             is DxfEllipse    -> drawEllipse(entity, canvas, matrix)
             is DxfSpline     -> drawSpline(entity, canvas, matrix)
             is DxfText       -> drawText(entity, canvas, matrix)
@@ -139,6 +145,22 @@ class EntityRenderer {
         if (e.corner4 != e.corner3) path.lineTo(p4.x, p4.y)
         path.close()
         canvas.drawPath(path, linePaint)
+    }
+
+    private fun drawSolid(e: DxfSolid, canvas: Canvas, matrix: Matrix) {
+        // SOLID vertex order: 1-2-4-3 (legacy)
+        val p1 = CoordTransform.worldToScreen(e.corner1, matrix)
+        val p2 = CoordTransform.worldToScreen(e.corner2, matrix)
+        val p3 = CoordTransform.worldToScreen(e.corner3, matrix)
+        val p4 = CoordTransform.worldToScreen(e.corner4, matrix)
+        val path = Path()
+        path.moveTo(p1.x, p1.y)
+        path.lineTo(p2.x, p2.y)
+        path.lineTo(p4.x, p4.y)   // 4 first (legacy order)
+        if (e.corner3 != e.corner4) path.lineTo(p3.x, p3.y)
+        path.close()
+        fillPaint.color = linePaint.color
+        canvas.drawPath(path, fillPaint)
     }
 
     private fun drawEllipse(e: DxfEllipse, canvas: Canvas, matrix: Matrix) {
