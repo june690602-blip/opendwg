@@ -39,13 +39,24 @@ static void w_string_utf8(Writer *w, const char *s) {
     if (w->ok && n > 0) { memcpy(w->buf + w->len, s, n); w->len += n; }
 }
 
-/* LibreDWG의 TV(텍스트 값)는 codepage가 이미 적용된 char*.
- * bit_TV_to_utf8()이 codepage로부터 UTF-8 char*를 반환한다.
+/* LibreDWG의 TV(텍스트 값)는 codepage가 이미 적용된 char* 또는 R2007+의 TU(UTF-16).
+ * bit_TV_to_utf8()이 두 경우 모두 안전하게 UTF-8 char*를 반환한다.
+ *
+ * 중요: bit_TV_to_utf8은 codepage가 CP_UTF8이거나 escape 확장이 필요 없는 경우
+ * 입력 포인터(tv)를 그대로 반환할 수 있다. 그 경우 free()를 호출하면 LibreDWG
+ * 내부 메모리가 손상된다. 우리는 항상 malloc된 사본을 반환하도록 strdup한다.
+ *
  * 호출 후에는 free()로 해제. NULL이면 빈 문자열로 처리.
  */
 static char *tv_to_utf8(const Dwg_Data *dwg, BITCODE_TV tv) {
     if (!tv) return NULL;
-    return bit_TV_to_utf8(tv, dwg->header.codepage);
+    char *r = bit_TV_to_utf8(tv, dwg->header.codepage);
+    if (!r) return NULL;
+    if (r == (char *)tv) {
+        /* bit_TV_to_utf8이 src를 그대로 반환 → free() 안전을 위해 복사 */
+        return strdup((const char *)tv);
+    }
+    return r;
 }
 
 /* ---- Layer 테이블 ---- */
