@@ -20,9 +20,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 
 ## Status (2026-05-28) — Phase 8.7 완료
 
-**현재 HEAD: 커밋 예정** — SheetClusterer P5-P95 percentile 기반 그리드 클러스터링 + TabLayout 시트 내비게이션.
+**현재 HEAD: `077a8ca`** — SheetClusterer P5-P95 percentile 기반 그리드 클러스터링 + TabLayout 시트 내비게이션.
 
-**다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-28-phase8.7-resume.md`
+**다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-28-phase8.8-resume.md`
 
 ### 작동 중 ✅
 - LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
