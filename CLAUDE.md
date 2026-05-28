@@ -18,9 +18,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-05-28) — Phase 8.5 완료, Phase 8.7 대기
+## Status (2026-05-28) — Phase 8.7 완료
 
-**현재 HEAD: `2833452`** — DIMENSION block 전개 transform 보정 (`clone_ins_pt + ins_scale + ins_rotation`) + 진단 로깅.
+**현재 HEAD: 커밋 예정** — SheetClusterer P5-P95 percentile 기반 그리드 클러스터링 + TabLayout 시트 내비게이션.
 
 **다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-28-phase8.7-resume.md`
 
@@ -29,7 +29,7 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
 - 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
 - 13MB DWG 파일 1초 내 파싱 (110K objects → 100K entities)
-- 단위 테스트 80개 통과 (Kotlin native 디코더 17 + EntityColor 3 + 기존)
+- 단위 테스트 86개 통과 (SheetClusterer 6 + Kotlin native 디코더 17 + EntityColor 3 + 기존)
 - LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
 - INSERT 블록 재귀 전개 (depth 5, affine transform)
 - **DIMENSION anonymous block 전개 (Phase 8.5)** — `clone_ins_pt` 변환으로 화살표/연장선/측정값
@@ -39,22 +39,18 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - 화면상 1px 미만 엔티티 + 4px 미만 텍스트 컬링 → 100K 엔티티에서도 ANR 안 남
 - HATCH 솔리드 채우기 25% 반투명 + 경계 항상 stroke (검정 덩어리 방지)
 - `fit-to-screen`이 `extents`/`displayExtents` 둘 다 null 처리 — Kotlin에서 entity bounds로 계산
-- 진단 로깅: mspace top-level 타입 분포, INSERT 타겟 블록 빈도, LINE bbox + plan_area, PSPACE check
+- **시트 클러스터링 + TabLayout (Phase 8.7)** — P5-P95 percentile 기반 그리드 BFS 클러스터링.
+  ref.dwg 기준 9개 시트 자동 감지 (171ms), 탭별 fit-to-screen 동작. 디바이스 검증 완료 (2026-05-28).
+  SheetClusterer: `model/SheetClusterer.kt`, UI: `ui/ViewerActivity.kt` + `render/DrawingView.kt`
 
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 수동 검증 결과 (`ref.dwg` 13MB, 110K objects, 디바이스 직접 검증 2026-05-28):
-1. **시트가 한 화면에 겹쳐 보임** — 한국 건축 DWG는 paper-space layout을 안 쓰고
-   평면도/입면도/단면도/시트 템플릿/심볼을 전부 model-space의 다른 좌표 영역에 직접 배치.
-   PSPACE num_owned=0, mspace top-level entities=7,947 (INSERT 1,623개 포함). 우리 뷰어가
-   model-space 전체를 한 번에 그려서 사용자가 "겹친 느낌" 보고. 코드 중복 버그가 아닌
-   원본 데이터 특성 (DIMENSION expansion ON/OFF 둘 다 동일 패턴 확인).
-   → **Phase 8.7 (다음 우선순위)**: 시트 grid/DBSCAN 클러스터링 + TabLayout으로 시트 단위 보기.
-2. **HATCH 패턴 미지원** — ANSI31/AR-CONC/벽돌무늬 등 모두 반투명 회색 솔리드로 fallback.
+1. **HATCH 패턴 미지원** — ANSI31/AR-CONC/벽돌무늬 등 모두 반투명 회색 솔리드로 fallback.
    다른 캐드앱 대비 시각적 차이 큼. → Phase 8.6 (우선순위 낮음): 자주 쓰이는 10여개 패턴 라인 생성.
-3. **구 DXF 파이프라인 잔존** — `DxfParser`, `DxfReader`, `DxfCharsetDetector`,
-   `nativeDwgToDxf` JNI 함수 모두 미사용 상태로 유지 (회귀 대비). Phase 8.7
-   안정화 후 삭제 (원 플랜의 Task 11).
+2. **구 DXF 파이프라인 잔존** — `DxfParser`, `DxfReader`, `DxfCharsetDetector`,
+   `nativeDwgToDxf` JNI 함수 모두 미사용 상태로 유지 (회귀 대비). 다음 단계에서
+   삭제 (원 플랜의 Task 11).
 
 ### 디버그/로깅
 - `adb logcat | grep CleanCAD/` 로 ViewModel(파일 카피/파싱 타이밍, entity/layer 개수,

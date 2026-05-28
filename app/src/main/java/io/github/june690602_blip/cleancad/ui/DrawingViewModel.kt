@@ -57,6 +57,9 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                             "entityColors=${drawing.entityColors.size}, sheets=${sheets.size}, " +
                             "extents=${drawing.extents}, displayExtents=${drawing.displayExtents}"
                     )
+                    sheets.forEachIndexed { i, s ->
+                        Log.i(TAG, "load: sheet[$i] bbox=(${s.bbox.minX.toInt()},${s.bbox.minY.toInt()})~(${s.bbox.maxX.toInt()},${s.bbox.maxY.toInt()}) size=${s.bbox.width.toInt()}x${s.bbox.height.toInt()}")
+                    }
                     Triple(drawing.copy(sheets = sheets), displayName, uri)
                 }
             }
