@@ -20,5 +20,6 @@ data class Drawing(
     val layers: List<Layer>,
     val extents: BoundingBox?,
     val displayExtents: BoundingBox?,
-    val entityColors: List<EntityColor> = emptyList()  // entities와 1:1, 비어있으면 모두 BYLAYER로 간주
+    val entityColors: List<EntityColor> = emptyList(),
+    val sheets: List<Sheet> = emptyList()
 )

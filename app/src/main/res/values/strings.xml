@@ -19,4 +19,6 @@
     <string name="about_libredwg">LibreDWG © Free Software Foundation, GPL v3</string>
     <string name="about_license">이 앱은 GPL v3 라이선스로 배포됩니다.</string>
     <string name="about_source_link">소스코드: https://github.com/june690602-blip/opendwg</string>
+    <string name="sheet_all">전체</string>
+    <string name="sheet_n">시트 %d</string>
 </resources>

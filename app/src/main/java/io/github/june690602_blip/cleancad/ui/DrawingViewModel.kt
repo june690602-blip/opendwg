@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.june690602_blip.cleancad.NativeDwg
+import io.github.june690602_blip.cleancad.model.SheetClusterer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,15 +48,16 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
 
                     val drawing = NativeDwg.parseToDrawing(dwgFile.absolutePath)
                     val t2 = System.currentTimeMillis()
+                    val sheets = SheetClusterer.cluster(drawing.entities)
+                    val t3 = System.currentTimeMillis()
                     Log.i(
                         TAG,
-                        "load: parsed in ${t2 - t1}ms — entities=${drawing.entities.size}, " +
-                            "layers=${drawing.layers.size}, " +
-                            "entityColors=${drawing.entityColors.size}, " +
-                            "extents=${drawing.extents}, " +
-                            "displayExtents=${drawing.displayExtents}"
+                        "load: parsed in ${t2 - t1}ms, clustered in ${t3 - t2}ms — " +
+                            "entities=${drawing.entities.size}, layers=${drawing.layers.size}, " +
+                            "entityColors=${drawing.entityColors.size}, sheets=${sheets.size}, " +
+                            "extents=${drawing.extents}, displayExtents=${drawing.displayExtents}"
                     )
-                    Triple(drawing, displayName, uri)
+                    Triple(drawing.copy(sheets = sheets), displayName, uri)
                 }
             }
             result.fold(
