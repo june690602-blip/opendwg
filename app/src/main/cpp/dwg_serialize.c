@@ -390,19 +390,32 @@ static void write_dimension(Writer *w, const Dwg_Data *dwg, const Dwg_Object *ob
      * ALIGNED로 캐스팅하여 공통 필드 접근. */
     Dwg_Entity_DIMENSION_ALIGNED *e = obj->tio.entity->tio.DIMENSION_ALIGNED;
 
-    /* anonymous block이 있으면 그 안의 자식 엔티티(LINE/SOLID/MTEXT 등)를
-     * world-coord 그대로 전개한다. 이미 WCS이므로 identity transform 사용. */
+    /* anonymous block은 BLOCK-local 좌표를 담고 있다. INSERT처럼
+     * (clone_ins_pt, ins_scale, ins_rotation)으로 변환해야 WCS로 옴.
+     * 부모(tx,ty,sx,sy,rot) 변환과 합성. */
     if (e->block && e->block->obj
         && e->block->obj->fixedtype == DWG_TYPE_BLOCK_HEADER) {
         Dwg_Object_BLOCK_HEADER *bh = e->block->obj->tio.object->tio.BLOCK_HEADER;
         if (bh) {
+            double cx = e->clone_ins_pt.x, cy = e->clone_ins_pt.y;
+            double csx = (e->ins_scale.x != 0.0) ? e->ins_scale.x : 1.0;
+            double csy = (e->ins_scale.y != 0.0) ? e->ins_scale.y : 1.0;
+            double crot = e->ins_rotation;
+            /* 부모 변환을 dimension 삽입점에 적용 */
+            double abs_x = cx, abs_y = cy;
+            affine_point(&abs_x, &abs_y, sx, sy, rot, tx, ty);
+            double new_sx = sx * csx;
+            double new_sy = sy * csy;
+            double new_rot = rot + crot;
+
             int expanded = 0;
             if (bh->entities && bh->num_owned > 0) {
                 for (BITCODE_BL i = 0; i < bh->num_owned; ++i) {
                     if (*count_ptr >= DWGB_MAX_ENTITIES) break;
                     if (!bh->entities[i] || !bh->entities[i]->obj) continue;
                     write_entity(w, dwg, bh->entities[i]->obj,
-                                 0.0, 0.0, 1.0, 1.0, 0.0, depth + 1, count_ptr);
+                                 abs_x, abs_y, new_sx, new_sy, new_rot,
+                                 depth + 1, count_ptr);
                     expanded++;
                 }
             } else if (bh->first_entity && bh->first_entity->obj
@@ -414,7 +427,8 @@ static void write_dimension(Writer *w, const Dwg_Data *dwg, const Dwg_Object *ob
                     if (*count_ptr >= DWGB_MAX_ENTITIES) break;
                     const Dwg_Object *child = &dwg->object[i];
                     if (child->supertype != DWG_SUPERTYPE_ENTITY) continue;
-                    write_entity(w, dwg, child, 0.0, 0.0, 1.0, 1.0, 0.0,
+                    write_entity(w, dwg, child,
+                                 abs_x, abs_y, new_sx, new_sy, new_rot,
                                  depth + 1, count_ptr);
                     expanded++;
                 }
