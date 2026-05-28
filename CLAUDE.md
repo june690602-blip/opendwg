@@ -9,8 +9,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
   `app/src/main/cpp/libredwg`, built via CMake/NDK, called over JNI.
 - Rendering pipeline: **DWG → native serializer (Dwg_Data 직접 순회) → binary buffer
   → Kotlin NativeDecoder → Drawing model → custom `Canvas` (`DrawingView`)**.
-  DXF 텍스트 중간단계는 Phase 8에서 제거됨 (현재 `nativeDwgToDxf` 함수 잔존하나
-  사용 안 함; Task 11에서 삭제 예정).
+  DXF 텍스트 중간단계는 Phase 8에서 제거됨. Task 11(2026-05-29)에서
+  `nativeDwgToDxf` 함수 및 DxfParser/Reader/CharsetDetector 코드 완전 삭제 완료.
 - Package / applicationId: `io.github.june690602_blip.cleancad`
 
 ## Key docs (read these first to get oriented)
@@ -18,9 +18,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-05-28) — Phase 8.7 완료
+## Status (2026-05-29) — Phase 8.8 진행 중 (Task 11 완료)
 
-**현재 HEAD: `077a8ca`** — SheetClusterer P5-P95 percentile 기반 그리드 클러스터링 + TabLayout 시트 내비게이션.
+**현재 HEAD: `38a9f58`** — 구 DXF 파이프라인 삭제 완료 (Task 11).
 
 **다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-28-phase8.8-resume.md`
 
@@ -29,7 +29,7 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
 - 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
 - 13MB DWG 파일 1초 내 파싱 (110K objects → 100K entities)
-- 단위 테스트 86개 통과 (SheetClusterer 6 + Kotlin native 디코더 17 + EntityColor 3 + 기존)
+- 단위 테스트 44개 통과 (SheetClusterer 6 + NativeDecoder 18 + EntityColor 3 + AciColor 10 + CoordTransform 6 + ExampleUnit 1)
 - LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
 - INSERT 블록 재귀 전개 (depth 5, affine transform)
 - **DIMENSION anonymous block 전개 (Phase 8.5)** — `clone_ins_pt` 변환으로 화살표/연장선/측정값
@@ -48,9 +48,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 수동 검증 결과 (`ref.dwg` 13MB, 110K objects, 디바이스 직접 검증 2026-05-28):
 1. **HATCH 패턴 미지원** — ANSI31/AR-CONC/벽돌무늬 등 모두 반투명 회색 솔리드로 fallback.
    다른 캐드앱 대비 시각적 차이 큼. → Phase 8.6 (우선순위 낮음): 자주 쓰이는 10여개 패턴 라인 생성.
-2. **구 DXF 파이프라인 잔존** — `DxfParser`, `DxfReader`, `DxfCharsetDetector`,
-   `nativeDwgToDxf` JNI 함수 모두 미사용 상태로 유지 (회귀 대비). 다음 단계에서
-   삭제 (원 플랜의 Task 11).
+2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9에서 보고됨. LEADER arrowhead,
+   DIMENSION 정의점, 작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
 
 ### 디버그/로깅
 - `adb logcat | grep CleanCAD/` 로 ViewModel(파일 카피/파싱 타이밍, entity/layer 개수,
