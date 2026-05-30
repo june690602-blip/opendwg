@@ -37,7 +37,7 @@ KEYSTORE_PASS=<키스토어비번> KEY_ALIAS=cleancad KEY_PASS=<키비번> \
 - 설명/카테고리: `docs/store/listing.md` 초안 사용
 - 아이콘(512): `docs/store/icon-512.png`
 - 스크린샷: `docs/store/screens/` (폰에서 확대 화면 추가 촬영 권장)
-- 기능 그래픽(1024×500): 별도 제작 필요
+- 기능 그래픽(1024×500): `docs/store/feature-graphic-1024x500.png`
 - **개인정보처리방침 URL**: 5번 GitHub Pages 활성화 후 입력
 - **데이터 안전성**: 수집/공유 없음(폼 답안은 listing.md 참고)
 - **콘텐츠 등급**: 설문에서 모두 "없음" → 전체이용가

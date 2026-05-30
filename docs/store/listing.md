@@ -106,5 +106,5 @@ Contact: june690602@gmail.com
 
 ## 필요한 그래픽 자산 (콘솔 업로드)
 - 앱 아이콘(hi-res) 512×512 PNG → `docs/store/icon-512.png`
-- 기능 그래픽(Feature graphic) 1024×500 PNG/JPG → (별도 제작)
+- 기능 그래픽(Feature graphic) 1024×500 → `docs/store/feature-graphic-1024x500.png`
 - 폰 스크린샷 최소 2장(권장 4~8장) → `docs/store/screens/`
