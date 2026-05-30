@@ -60,11 +60,16 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - **POINT 지원 (Phase 10.2)** — 새 DWGB_TYPE_POINT(17). `DxfPoint` 모델, 줌 무관 1.5px 고정 점으로
   렌더(픽셀컬 예외). 클러스터링 제외(centroid=null)·extents 미반영(worldBounds=null), 공간인덱스엔
   포함. `04_참고도면.dwg` 2,763점 렌더(나머지는 XCLIP 클립 밖이라 컬링).
-- **IMAGE/WIPEOUT/OLE2FRAME/MINSERT/ATTRIB 지원 (Phase 10.3)** — 모두 native에서 기존 레코드로 분해
-  (디코더/모델/렌더 무변경): IMAGE/WIPEOUT=pt0+uvec·vvec 4코너 프레임→LWPOLYLINE, OLE2FRAME=pt1/pt2
+- **IMAGE/OLE2FRAME/MINSERT/ATTRIB 지원 (Phase 10.3)** — 모두 native에서 기존 레코드로 분해
+  (디코더/모델/렌더 무변경): IMAGE=pt0+uvec·vvec 4코너 프레임→LWPOLYLINE, OLE2FRAME=pt1/pt2
   사각형, MINSERT=블록을 num_cols×num_rows 격자 전개, ATTRIB=INSERT 속성값→TEXT(부모 변환 적용).
   검증: "입면도"·"1:60"·"DRAWING NAME" 표제란 라벨(ATTRIB), 사진 프레임(IMAGE) 렌더 확인.
-  엔티티 191,148→192,897(+1,749). ⚠️ ATTDEF(블록 내 속성 정의 템플릿)는 의도적 미렌더(ATTRIB 값으로 대체).
+  ⚠️ ATTDEF(블록 내 속성 정의 템플릿)는 의도적 미렌더(ATTRIB 값으로 대체).
+- **WIPEOUT 프레임 미렌더 (Phase 10.5)** — Phase 10.3에서 WIPEOUT을 IMAGE와 같은 프레임으로 내보냈으나,
+  실측 결과 `pt0+uvec*image_size+vvec*image_size`는 클립 폴리곤을 감싸는 "이미지 정사각형"(w==h)이라
+  실제 마스크보다 훨씬 크다(`04` 최대 574,790×574,790, 시트 폭 ~430K를 뚫고 나감). AutoCAD/ZWCAD도
+  기본값(WIPEOUTVARIABLES.display_frame=0)에서 테두리 미표시. 마스킹 자체를 구현 안 하므로
+  WIPEOUT은 **완전 skip**(dispatch+entity_local_repr 제거). 엔티티 192,897→192,882(WIPEOUT 15개).
 - **도면목록표/표지/사업개요 컬링 해결 (Phase 10.4)** — 원인: SheetClusterer가 P5-P95로 시트 bbox를
   클리핑해, 엔티티 적고 메인 위에 떨어진 저밀도 시트(표지·도면목록표·사업개요·위치도)가 상위 5%로
   밀려 검출 bbox에서 빠짐 → 그 합집합 displayExtents가 renderBounds로 그 시트들을 컬링. 수정:

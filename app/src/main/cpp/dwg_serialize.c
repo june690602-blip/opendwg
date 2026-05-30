@@ -788,7 +788,6 @@ static int entity_local_repr(const Dwg_Object *obj, double *px, double *py) {
     switch (obj->fixedtype) {
         case DWG_TYPE_POINT:  { Dwg_Entity_POINT  *e=obj->tio.entity->tio.POINT;  *px=e->x;        *py=e->y;        return 1; }
         case DWG_TYPE_IMAGE:  { Dwg_Entity_IMAGE  *e=obj->tio.entity->tio.IMAGE;  *px=e->pt0.x;    *py=e->pt0.y;    return 1; }
-        case DWG_TYPE_WIPEOUT:{ Dwg_Entity_WIPEOUT*e=obj->tio.entity->tio.WIPEOUT;*px=e->pt0.x;    *py=e->pt0.y;    return 1; }
         case DWG_TYPE_OLE2FRAME:{Dwg_Entity_OLE2FRAME*e=obj->tio.entity->tio.OLE2FRAME;*px=e->pt1.x;*py=e->pt1.y;   return 1; }
         case DWG_TYPE_LINE:   { Dwg_Entity_LINE   *e=obj->tio.entity->tio.LINE;   *px=e->start.x;  *py=e->start.y;  return 1; }
         case DWG_TYPE_CIRCLE: { Dwg_Entity_CIRCLE *e=obj->tio.entity->tio.CIRCLE; *px=e->center.x; *py=e->center.y; return 1; }
@@ -1157,12 +1156,10 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                                e->vvec.x, e->vvec.y, e->image_size.x, e->image_size.y,
                                tx, ty, sx, sy, rot); (*count_ptr)++; break;
         }
-        case DWG_TYPE_WIPEOUT: {
-            Dwg_Entity_WIPEOUT *e = obj->tio.entity->tio.WIPEOUT;
-            write_raster_frame(w, dwg, obj, e->pt0.x, e->pt0.y, e->uvec.x, e->uvec.y,
-                               e->vvec.x, e->vvec.y, e->image_size.x, e->image_size.y,
-                               tx, ty, sx, sy, rot); (*count_ptr)++; break;
-        }
+        /* WIPEOUT 프레임은 의도적으로 미렌더. pt0+uvec*size+vvec*size 는 클립 폴리곤을
+         * 감싸는 "이미지 정사각형"(image_size.x==y)이라 실제 마스크 영역보다 훨씬 크고,
+         * AutoCAD/ZWCAD 도 기본값(WIPEOUTVARIABLES.display_frame=0)에서 테두리를 그리지 않는다.
+         * 마스킹 자체를 구현하지 않으므로 프레임만 그리면 도면을 뚫는 큰 네모만 남는다 → skip. */
         case DWG_TYPE_OLE2FRAME: {
             Dwg_Entity_OLE2FRAME *e = obj->tio.entity->tio.OLE2FRAME;
             double xs[4] = { e->pt1.x, e->pt2.x, e->pt2.x, e->pt1.x };
