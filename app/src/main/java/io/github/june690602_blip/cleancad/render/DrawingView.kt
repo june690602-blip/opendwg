@@ -63,6 +63,8 @@ class DrawingView @JvmOverloads constructor(
         this.drawing = drawing
         this.activeSheet = null
         renderer.setDrawing(drawing)
+        // displayExtents 밖 outlier entity를 영구 컬링 (Phase 9.2).
+        renderer.setRenderBounds(drawing.displayExtents ?: drawing.extents)
         if (width > 0 && height > 0) fitToScreen() else matrix = Matrix()
         invalidate()
     }

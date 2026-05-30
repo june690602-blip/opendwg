@@ -60,7 +60,18 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                     sheets.forEachIndexed { i, s ->
                         Log.i(TAG, "load: sheet[$i] bbox=(${s.bbox.minX.toInt()},${s.bbox.minY.toInt()})~(${s.bbox.maxX.toInt()},${s.bbox.maxY.toInt()}) size=${s.bbox.width.toInt()}x${s.bbox.height.toInt()}")
                     }
-                    Triple(drawing.copy(sheets = sheets), displayName, uri)
+                    // displayExtents: 시트 클러스터 bbox 합집합으로 재계산.
+                    // NativeDecoder의 5% trim percentile은 아웃라이어가 5%를 넘으면 취약해
+                    // fit/renderBounds가 망가진다. SheetClusterer는 grid-BFS+percentile+minEntities로
+                    // 아웃라이어를 이미 제거하므로, 시트 합집합이 더 견고한 displayExtents다.
+                    val sheetUnion = if (sheets.isNotEmpty()) {
+                        io.github.june690602_blip.cleancad.model.BoundingBox(
+                            sheets.minOf { it.bbox.minX }, sheets.minOf { it.bbox.minY },
+                            sheets.maxOf { it.bbox.maxX }, sheets.maxOf { it.bbox.maxY }
+                        )
+                    } else drawing.displayExtents
+                    Log.i(TAG, "load: displayExtents(sheet-union)=$sheetUnion")
+                    Triple(drawing.copy(sheets = sheets, displayExtents = sheetUnion), displayName, uri)
                 }
             }
             result.fold(

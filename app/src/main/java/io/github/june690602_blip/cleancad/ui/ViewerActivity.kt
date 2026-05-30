@@ -15,9 +15,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.tabs.TabLayout
 import io.github.june690602_blip.cleancad.R
-import io.github.june690602_blip.cleancad.model.Drawing
 import io.github.june690602_blip.cleancad.render.DrawingView
 import kotlinx.coroutines.launch
 
@@ -27,7 +25,6 @@ class ViewerActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var tvError: TextView
     private lateinit var fabFit: FloatingActionButton
-    private lateinit var tabSheets: TabLayout
 
     private val viewModel: DrawingViewModel by viewModels()
 
@@ -45,20 +42,7 @@ class ViewerActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         tvError = findViewById(R.id.tv_error)
         fabFit = findViewById(R.id.fab_fit)
-        tabSheets = findViewById(R.id.tab_sheets)
         fabFit.setOnClickListener { drawingView.fitToScreen() }
-
-        tabSheets.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) {
-                val sheet = tab.tag as? io.github.june690602_blip.cleancad.model.Sheet
-                drawingView.showSheet(sheet)
-            }
-            override fun onTabUnselected(tab: TabLayout.Tab) {}
-            override fun onTabReselected(tab: TabLayout.Tab) {
-                val sheet = tab.tag as? io.github.june690602_blip.cleancad.model.Sheet
-                drawingView.showSheet(sheet)
-            }
-        })
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -79,7 +63,6 @@ class ViewerActivity : AppCompatActivity() {
                             )
                             showDrawing()
                             drawingView.setDrawing(state.drawing)
-                            populateSheetsTab(state.drawing)
                         }
                         is DrawingState.Error -> {
                             showError(getString(R.string.error_prefix) + state.message)
@@ -93,26 +76,6 @@ class ViewerActivity : AppCompatActivity() {
             val uri = intent.data
             if (uri != null) viewModel.load(uri) else openDoc.launch(arrayOf("*/*"))
         }
-    }
-
-    private fun populateSheetsTab(drawing: Drawing) {
-        tabSheets.removeAllTabs()
-        val sheets = drawing.sheets
-        if (sheets.size < 2) {
-            tabSheets.visibility = View.GONE
-            return
-        }
-
-        // "전체" 탭
-        tabSheets.addTab(tabSheets.newTab().setText(getString(R.string.sheet_all)).setTag(null))
-
-        sheets.forEachIndexed { idx, sheet ->
-            val label = sheet.name ?: getString(R.string.sheet_n, idx + 1)
-            tabSheets.addTab(tabSheets.newTab().setText(label).setTag(sheet))
-        }
-
-        tabSheets.visibility = View.VISIBLE
-        tabSheets.getTabAt(0)?.select()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -135,7 +98,6 @@ class ViewerActivity : AppCompatActivity() {
         drawingView.visibility = View.GONE
         tvError.visibility = View.GONE
         fabFit.visibility = View.GONE
-        tabSheets.visibility = View.GONE
     }
 
     private fun showDrawing() {
@@ -151,6 +113,5 @@ class ViewerActivity : AppCompatActivity() {
         fabFit.visibility = View.GONE
         tvError.visibility = View.VISIBLE
         tvError.text = msg
-        tabSheets.visibility = View.GONE
     }
 }

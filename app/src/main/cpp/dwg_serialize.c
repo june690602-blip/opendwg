@@ -7,7 +7,34 @@
 #include <string.h>
 
 #define DWGB_MAX_INSERT_DEPTH 5
-#define DWGB_MAX_ENTITIES 100000
+#define DWGB_MAX_ENTITIES 500000
+
+/* XCLIP: 현재 활성 world 클립 사각형(축정렬). write_insert 진입 시 set, 나갈 때 restore.
+ * 기하 클리핑(선/폴리라인 잘라내기)과 소형 엔티티 컬링에 사용. */
+static int    g_clip_on = 0;
+static double g_clx0, g_cly0, g_clx1, g_cly1;
+
+/* Liang-Barsky: 선분 (x0,y0)-(x1,y1)을 사각형 [xmin,xmax]x[ymin,ymax]로 클립.
+ * 보이면 1 반환(엔드포인트를 클립 결과로 갱신), 완전히 밖이면 0. */
+static int clip_seg(double *x0, double *y0, double *x1, double *y1,
+                    double xmin, double ymin, double xmax, double ymax) {
+    double dx = *x1 - *x0, dy = *y1 - *y0;
+    double p[4] = { -dx, dx, -dy, dy };
+    double q[4] = { *x0 - xmin, xmax - *x0, *y0 - ymin, ymax - *y0 };
+    double u1 = 0.0, u2 = 1.0;
+    for (int i = 0; i < 4; ++i) {
+        if (p[i] == 0.0) { if (q[i] < 0.0) return 0; }
+        else {
+            double r = q[i] / p[i];
+            if (p[i] < 0.0) { if (r > u2) return 0; if (r > u1) u1 = r; }
+            else            { if (r < u1) return 0; if (r < u2) u2 = r; }
+        }
+    }
+    double ox = *x0, oy = *y0;
+    *x0 = ox + u1 * dx; *y0 = oy + u1 * dy;
+    *x1 = ox + u2 * dx; *y1 = oy + u2 * dy;
+    return 1;
+}
 
 typedef struct {
     uint8_t *buf;
@@ -202,19 +229,52 @@ static void write_entity_header(Writer *w, const Dwg_Data *dwg,
 
 /* ---- 9a-1: POLYLINE 계열 ---- */
 
-static void write_lwpolyline(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
-                             double tx, double ty, double sx, double sy, double rot) {
+/* 반환: emit한 엔티티 수. 클립 활성 + 경계 가로지름이면 보이는 세그먼트를 2점 폴리라인으로 분할. */
+static int write_lwpolyline(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                            double tx, double ty, double sx, double sy, double rot) {
     Dwg_Entity_LWPOLYLINE *e = obj->tio.entity->tio.LWPOLYLINE;
-    write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
     uint8_t closed = ((e->flag & 1) || (e->flag & 512)) ? 1 : 0;
+    BITCODE_BL n = e->num_points;
+
+    if (g_clip_on && n >= 2) {
+        /* 전부 클립 안쪽인지 검사 */
+        int all_in = 1;
+        for (BITCODE_BL i = 0; i < n; ++i) {
+            double x = e->points[i].x, y = e->points[i].y;
+            affine_point(&x, &y, sx, sy, rot, tx, ty);
+            if (x < g_clx0 || x > g_clx1 || y < g_cly0 || y > g_cly1) { all_in = 0; break; }
+        }
+        if (!all_in) {
+            /* 가로지름: 세그먼트별 클립 → 2점 폴리라인 조각 */
+            BITCODE_BL segs = closed ? n : (n - 1);
+            int emitted = 0;
+            for (BITCODE_BL i = 0; i < segs && w->ok; ++i) {
+                BITCODE_BL j = (i + 1) % n;
+                double ax = e->points[i].x, ay = e->points[i].y;
+                double bx = e->points[j].x, by = e->points[j].y;
+                affine_point(&ax, &ay, sx, sy, rot, tx, ty);
+                affine_point(&bx, &by, sx, sy, rot, tx, ty);
+                if (!clip_seg(&ax, &ay, &bx, &by, g_clx0, g_cly0, g_clx1, g_cly1)) continue;
+                write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
+                w_u8(w, 0); w_i32(w, 2);
+                w_f64(w, ax); w_f64(w, ay); w_f64(w, bx); w_f64(w, by);
+                emitted++;
+            }
+            return emitted;
+        }
+        /* 전부 안쪽 → 통째 emit (아래 공통 경로) */
+    }
+
+    write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
     w_u8(w, closed);
-    w_i32(w, (int32_t)e->num_points);
+    w_i32(w, (int32_t)n);
     int do_transform = (tx != 0.0 || ty != 0.0 || sx != 1.0 || sy != 1.0 || rot != 0.0);
-    for (BITCODE_BL i = 0; i < e->num_points; ++i) {
+    for (BITCODE_BL i = 0; i < n; ++i) {
         double px = e->points[i].x, py = e->points[i].y;
         if (do_transform) affine_point(&px, &py, sx, sy, rot, tx, ty);
         w_f64(w, px); w_f64(w, py);
     }
+    return 1;
 }
 
 static void write_polyline_2d(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -518,8 +578,14 @@ static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             }
         }
         if (!w->ok) return;
-        memcpy(w->buf + pos_num_verts, &nv, 4);
-        if (nv > 0) actual_paths++;
+        if (nv == 0) {
+            /* LINE segment가 하나도 없으면 placeholder를 rewind해서 num_paths(actual_paths)와
+               stream에 남은 path 개수를 일치시킴 — 안 그러면 디코더 오프셋이 path 하나당 4byte씩 어긋남. */
+            w->len = pos_num_verts;
+        } else {
+            memcpy(w->buf + pos_num_verts, &nv, 4);
+            actual_paths++;
+        }
     }
     if (!w->ok) return;
     memcpy(w->buf + pos_num_paths, &actual_paths, 4);
@@ -527,8 +593,9 @@ static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
 
 /* ---- Basic entities ---- */
 
-static void write_line(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
-                       double tx, double ty, double sx, double sy, double rot) {
+/* 반환: emit한 엔티티 수(0 또는 1). 클립 활성 시 사각형으로 잘라냄. */
+static int write_line(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                      double tx, double ty, double sx, double sy, double rot) {
     Dwg_Entity_LINE *e = obj->tio.entity->tio.LINE;
     double x1 = e->start.x, y1 = e->start.y;
     double x2 = e->end.x,   y2 = e->end.y;
@@ -536,8 +603,11 @@ static void write_line(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
         affine_point(&x1, &y1, sx, sy, rot, tx, ty);
         affine_point(&x2, &y2, sx, sy, rot, tx, ty);
     }
+    if (g_clip_on && !clip_seg(&x1, &y1, &x2, &y2, g_clx0, g_cly0, g_clx1, g_cly1))
+        return 0;
     write_entity_header(w, dwg, obj, DWGB_TYPE_LINE);
     w_f64(w, x1); w_f64(w, y1); w_f64(w, x2); w_f64(w, y2);
+    return 1;
 }
 
 static void write_circle(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -575,6 +645,124 @@ static void write_arc(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     w_f64(w, sd); w_f64(w, ed);
 }
 
+/* ---- XCLIP: INSERT 의 SPATIAL_FILTER 찾기 ---- */
+
+/* DICTIONARY 에서 key 에 해당하는 itemhandle 의 Dwg_Object* 반환 (없으면 NULL) */
+static Dwg_Object *dict_find(const Dwg_Data *dwg, Dwg_Object *dict_obj, const char *key) {
+    if (!dict_obj || !dict_obj->tio.object) return NULL;
+    if (dict_obj->fixedtype != DWG_TYPE_DICTIONARY) return NULL;
+    Dwg_Object_DICTIONARY *d = dict_obj->tio.object->tio.DICTIONARY;
+    if (!d || !d->texts || !d->itemhandles) return NULL;
+    for (BITCODE_BL i = 0; i < d->numitems; ++i) {
+        if (!d->texts[i]) continue;
+        char *t = tv_to_utf8(dwg, d->texts[i]);
+        int match = (t && strcmp(t, key) == 0);
+        if (t) free(t);
+        if (match && d->itemhandles[i] && d->itemhandles[i]->obj)
+            return d->itemhandles[i]->obj;
+    }
+    return NULL;
+}
+
+/* INSERT entity → xdic → ACAD_FILTER dict → SPATIAL → SPATIAL_FILTER (없으면 NULL) */
+static Dwg_Object_SPATIAL_FILTER *insert_xclip(const Dwg_Data *dwg, const Dwg_Object *ins_obj) {
+    if (!ins_obj || !ins_obj->tio.entity) return NULL;
+    BITCODE_H xdic = ins_obj->tio.entity->xdicobjhandle;
+    if (!xdic || !xdic->obj) return NULL;
+    Dwg_Object *filter_dict = dict_find(dwg, xdic->obj, "ACAD_FILTER");
+    if (!filter_dict) return NULL;
+    Dwg_Object *sp_obj = dict_find(dwg, filter_dict, "SPATIAL");
+    if (!sp_obj || sp_obj->fixedtype != DWG_TYPE_SPATIAL_FILTER) return NULL;
+    if (!sp_obj->tio.object) return NULL;
+    return sp_obj->tio.object->tio.SPATIAL_FILTER;
+}
+
+/* 클립 컬링용 엔티티 대표점(블록 로컬 좌표). 못 구하면 0 반환(=컬링 안 함, 보존). */
+static int entity_local_repr(const Dwg_Object *obj, double *px, double *py) {
+    if (!obj || !obj->tio.entity) return 0;
+    switch (obj->fixedtype) {
+        case DWG_TYPE_LINE:   { Dwg_Entity_LINE   *e=obj->tio.entity->tio.LINE;   *px=e->start.x;  *py=e->start.y;  return 1; }
+        case DWG_TYPE_CIRCLE: { Dwg_Entity_CIRCLE *e=obj->tio.entity->tio.CIRCLE; *px=e->center.x; *py=e->center.y; return 1; }
+        case DWG_TYPE_ARC:    { Dwg_Entity_ARC    *e=obj->tio.entity->tio.ARC;    *px=e->center.x; *py=e->center.y; return 1; }
+        case DWG_TYPE_ELLIPSE:{ Dwg_Entity_ELLIPSE*e=obj->tio.entity->tio.ELLIPSE;*px=e->center.x; *py=e->center.y; return 1; }
+        case DWG_TYPE_TEXT:   { Dwg_Entity_TEXT   *e=obj->tio.entity->tio.TEXT;   *px=e->ins_pt.x; *py=e->ins_pt.y; return 1; }
+        case DWG_TYPE_MTEXT:  { Dwg_Entity_MTEXT  *e=obj->tio.entity->tio.MTEXT;  *px=e->ins_pt.x; *py=e->ins_pt.y; return 1; }
+        case DWG_TYPE_INSERT: { Dwg_Entity_INSERT *e=obj->tio.entity->tio.INSERT; *px=e->ins_pt.x; *py=e->ins_pt.y; return 1; }
+        case DWG_TYPE__3DFACE:{ Dwg_Entity__3DFACE*e=obj->tio.entity->tio._3DFACE;*px=e->corner1.x;*py=e->corner1.y;return 1; }
+        case DWG_TYPE_SOLID:  { Dwg_Entity_SOLID  *e=obj->tio.entity->tio.SOLID;  *px=e->corner1.x;*py=e->corner1.y;return 1; }
+        case DWG_TYPE_LWPOLYLINE: {
+            Dwg_Entity_LWPOLYLINE *e=obj->tio.entity->tio.LWPOLYLINE;
+            if (e->num_points > 0 && e->points) { *px=e->points[0].x; *py=e->points[0].y; return 1; }
+            return 0;
+        }
+        case DWG_TYPE_SPLINE: {
+            Dwg_Entity_SPLINE *e=obj->tio.entity->tio.SPLINE;
+            if (e->num_ctrl_pts > 0 && e->ctrl_pts) { *px=e->ctrl_pts[0].x; *py=e->ctrl_pts[0].y; return 1; }
+            return 0;
+        }
+        case DWG_TYPE_LEADER: {
+            Dwg_Entity_LEADER *e=obj->tio.entity->tio.LEADER;
+            if (e->num_points > 0 && e->points) { *px=e->points[0].x; *py=e->points[0].y; return 1; }
+            return 0;
+        }
+        case DWG_TYPE_DIMENSION_ALIGNED:
+        case DWG_TYPE_DIMENSION_LINEAR:
+        case DWG_TYPE_DIMENSION_ANG3PT:
+        case DWG_TYPE_DIMENSION_ANG2LN:
+        case DWG_TYPE_DIMENSION_RADIUS:
+        case DWG_TYPE_DIMENSION_DIAMETER:
+        case DWG_TYPE_DIMENSION_ORDINATE: {
+            /* 모든 DIMENSION_* 는 DIMENSION_COMMON 공유 → ALIGNED 캐스팅. def_pt 사용. */
+            Dwg_Entity_DIMENSION_ALIGNED *e=obj->tio.entity->tio.DIMENSION_ALIGNED;
+            *px=e->def_pt.x; *py=e->def_pt.y; return 1;
+        }
+        case DWG_TYPE_HATCH: {
+            Dwg_Entity_HATCH *e=obj->tio.entity->tio.HATCH;
+            if (e->num_paths > 0 && e->paths) {
+                Dwg_HATCH_Path *p = &e->paths[0];
+                if ((p->flag & 2) && p->num_segs_or_paths > 0 && p->polyline_paths) {
+                    *px=p->polyline_paths[0].point.x; *py=p->polyline_paths[0].point.y; return 1;
+                } else if (p->num_segs_or_paths > 0 && p->segs) {
+                    *px=p->segs[0].first_endpoint.x; *py=p->segs[0].first_endpoint.y; return 1;
+                }
+            }
+            return 0;
+        }
+        default: return 0;
+    }
+}
+
+/* HATCH 전체 bbox(블록 로컬). 솔리드 채움이 클립 밖으로 길게 뻗어 회색 띠로 겹치는 문제를
+ * 막기 위해 대표점이 아닌 bbox 로 판정한다. 구하면 1. */
+static int entity_local_bbox(const Dwg_Object *obj,
+                             double *minx, double *miny, double *maxx, double *maxy) {
+    if (!obj || !obj->tio.entity) return 0;
+    if (obj->fixedtype != DWG_TYPE_HATCH) return 0;
+    Dwg_Entity_HATCH *e = obj->tio.entity->tio.HATCH;
+    if (e->num_paths == 0 || !e->paths) return 0;
+    double a = 1e18, b = 1e18, c = -1e18, d = -1e18; int found = 0;
+    for (BITCODE_BL pi = 0; pi < e->num_paths; ++pi) {
+        Dwg_HATCH_Path *p = &e->paths[pi];
+        if ((p->flag & 2) && p->polyline_paths) {
+            for (BITCODE_BL v = 0; v < p->num_segs_or_paths; ++v) {
+                double x = p->polyline_paths[v].point.x, y = p->polyline_paths[v].point.y;
+                if (x<a)a=x; if (y<b)b=y; if (x>c)c=x; if (y>d)d=y; found=1;
+            }
+        } else if (p->segs) {
+            for (BITCODE_BL s = 0; s < p->num_segs_or_paths; ++s) {
+                if (p->segs[s].curve_type != 1) continue;
+                double x1=p->segs[s].first_endpoint.x,  y1=p->segs[s].first_endpoint.y;
+                double x2=p->segs[s].second_endpoint.x, y2=p->segs[s].second_endpoint.y;
+                if (x1<a)a=x1; if (y1<b)b=y1; if (x1>c)c=x1; if (y1>d)d=y1;
+                if (x2<a)a=x2; if (y2<b)b=y2; if (x2>c)c=x2; if (y2>d)d=y2; found=1;
+            }
+        }
+    }
+    if (!found) return 0;
+    *minx=a; *miny=b; *maxx=c; *maxy=d; return 1;
+}
+
+
 /* ---- 9b: INSERT 재귀 전개 ---- */
 
 static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -586,12 +774,78 @@ static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     Dwg_Object_BLOCK_HEADER *bh = e->block_header->obj->tio.object->tio.BLOCK_HEADER;
     if (!bh) return;
 
-    /* INSERT 자체의 변환: parent 변환과 합성 */
+    /* INSERT 자체의 변환: parent 변환과 합성.
+     * DWG 규칙: child_world = ins_pt + Rot·Scale·(child_local − base_pt).
+     * affine_point 은 P'=Rot·Scale·P+(tx,ty) 이므로, 자식에 넘길 평행이동은
+     *   T = ins_pt_world − Rot(new_rot)·Scale(new_s)·base_pt
+     * 가 되어야 한다. base_pt 를 빼지 않으면 "기존 지오메트리를 base_pt 위치에서
+     * 캡처한" 블록(상세도/단면 등)이 원래 절대좌표 근처에 그대로 쌓여 떡덩어리가 된다. */
     double ix = e->ins_pt.x, iy = e->ins_pt.y;
     affine_point(&ix, &iy, sx, sy, rot, tx, ty);
     double new_sx = sx * e->scale.x;
     double new_sy = sy * e->scale.y;
     double new_rot = rot + e->rotation;
+
+    /* base_pt 보정: Rot·Scale 적용한 base_pt 를 평행이동에서 차감 */
+    double bpx = bh->base_pt.x, bpy = bh->base_pt.y;
+    affine_point(&bpx, &bpy, new_sx, new_sy, new_rot, 0.0, 0.0);
+    double child_tx = ix - bpx;
+    double child_ty = iy - bpy;
+
+    /* XCLIP: 이 INSERT 에 SPATIAL_FILTER 가 있으면 클립 경계를 world bbox 로 계산.
+     * 모델(실측): clip_world = childTransform( invXform2D(clip_vert) ).
+     *   invXform2D: 블록 raw = inv·clip_vert (clip공간→블록 정의공간)
+     *   childTransform: 블록 raw → world (자식 엔티티와 동일 변환)
+     * num_clip_verts==2 = 직사각형(두 코너), >2 = 폴리곤(MVP: bbox 사용). */
+    int    has_clip = 0;
+    double clminx = 1e18, clminy = 1e18, clmaxx = -1e18, clmaxy = -1e18;
+    {
+        Dwg_Object_SPATIAL_FILTER *sf = insert_xclip(dwg, obj);
+        if (sf && sf->num_clip_verts >= 2 && sf->clip_verts) {
+            const double *iv = sf->inverse_transform;
+            int m = (int)sf->num_clip_verts;
+            /* 코너 목록: 직사각형이면 두 점으로 4코너 구성 */
+            double cxs[4], cys[4]; int ncorn;
+            if (m == 2) {
+                double ax = sf->clip_verts[0].x, ay = sf->clip_verts[0].y;
+                double bx = sf->clip_verts[1].x, by = sf->clip_verts[1].y;
+                cxs[0]=ax; cys[0]=ay; cxs[1]=bx; cys[1]=ay;
+                cxs[2]=bx; cys[2]=by; cxs[3]=ax; cys[3]=by; ncorn=4;
+            } else {
+                ncorn = 0; /* 폴리곤: 아래서 직접 순회 */
+            }
+            /* 폴리곤이면 전체 vert, 직사각형이면 4코너를 world bbox 로 */
+            int total = (m == 2) ? ncorn : m;
+            for (int k = 0; k < total; ++k) {
+                double cx = (m == 2) ? cxs[k] : sf->clip_verts[k].x;
+                double cy = (m == 2) ? cys[k] : sf->clip_verts[k].y;
+                double bx, by;
+                if (iv) { bx = iv[0]*cx + iv[1]*cy + iv[3];
+                          by = iv[4]*cx + iv[5]*cy + iv[7]; }
+                else    { bx = cx; by = cy; }
+                affine_point(&bx, &by, new_sx, new_sy, new_rot, child_tx, child_ty);
+                if (bx < clminx) clminx = bx; if (by < clminy) clminy = by;
+                if (bx > clmaxx) clmaxx = bx; if (by > clmaxy) clmaxy = by;
+            }
+            if (clminx <= clmaxx) has_clip = 1;
+        }
+    }
+
+    /* 이 INSERT 의 클립을 부모 클립과 교집합하여 g_clip 설정.
+     * 자식 컬링/기하 클리핑은 write_entity 와 leaf writer 가 g_clip 으로 처리. */
+    int    saved_on = g_clip_on;
+    double svx0 = g_clx0, svy0 = g_cly0, svx1 = g_clx1, svy1 = g_cly1;
+    if (has_clip) {
+        if (g_clip_on) {
+            if (clminx > g_clx0) g_clx0 = clminx;
+            if (clminy > g_cly0) g_cly0 = clminy;
+            if (clmaxx < g_clx1) g_clx1 = clmaxx;
+            if (clmaxy < g_cly1) g_cly1 = clmaxy;
+        } else {
+            g_clx0 = clminx; g_cly0 = clminy; g_clx1 = clmaxx; g_cly1 = clmaxy;
+            g_clip_on = 1;
+        }
+    }
 
     /* BLOCK_HEADER의 자식 엔티티 순회 */
     if (bh->entities && bh->num_owned > 0) {
@@ -599,7 +853,7 @@ static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             if (*count_ptr >= DWGB_MAX_ENTITIES) break;
             if (!bh->entities[i] || !bh->entities[i]->obj) continue;
             write_entity(w, dwg, bh->entities[i]->obj,
-                         ix, iy, new_sx, new_sy, new_rot, depth + 1, count_ptr);
+                         child_tx, child_ty, new_sx, new_sy, new_rot, depth + 1, count_ptr);
         }
     } else if (bh->first_entity && bh->first_entity->obj
                && bh->last_entity && bh->last_entity->obj) {
@@ -611,25 +865,78 @@ static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             if (*count_ptr >= DWGB_MAX_ENTITIES) break;
             const Dwg_Object *child = &dwg->object[i];
             if (child->supertype != DWG_SUPERTYPE_ENTITY) continue;
-            write_entity(w, dwg, child, ix, iy, new_sx, new_sy, new_rot,
+            write_entity(w, dwg, child, child_tx, child_ty, new_sx, new_sy, new_rot,
                          depth + 1, count_ptr);
         }
     }
+
+    /* g_clip 복원 */
+    g_clip_on = saved_on;
+    g_clx0 = svx0; g_cly0 = svy0; g_clx1 = svx1; g_cly1 = svy1;
 }
 
 static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                          double tx, double ty, double sx, double sy, double rot,
                          int depth, int *count_ptr) {
     if (*count_ptr >= DWGB_MAX_ENTITIES) return;
+
+    /* XCLIP 활성 시 클립 처리:
+     *  - LINE/LWPOLYLINE/POLYLINE/INSERT/DIMENSION: 통과(leaf writer 가 잘라내거나 재귀가 처리)
+     *  - HATCH: world bbox 가 클립 밖 또는 클립크기 이상 overflow 면 컬링(회색 띠 방지)
+     *  - 소형 타입(원/호/텍스트 등): 대표점이 클립 밖이면 컬링 */
+    if (g_clip_on) {
+        switch (obj->fixedtype) {
+            case DWG_TYPE_LINE:
+            case DWG_TYPE_LWPOLYLINE:
+            case DWG_TYPE_POLYLINE_2D:
+            case DWG_TYPE_POLYLINE_3D:
+            case DWG_TYPE_INSERT:
+            case DWG_TYPE_DIMENSION_ALIGNED:
+            case DWG_TYPE_DIMENSION_LINEAR:
+            case DWG_TYPE_DIMENSION_ANG3PT:
+            case DWG_TYPE_DIMENSION_ANG2LN:
+            case DWG_TYPE_DIMENSION_RADIUS:
+            case DWG_TYPE_DIMENSION_DIAMETER:
+            case DWG_TYPE_DIMENSION_ORDINATE:
+                break;
+            case DWG_TYPE_HATCH: {
+                double lminx, lminy, lmaxx, lmaxy;
+                if (entity_local_bbox(obj, &lminx, &lminy, &lmaxx, &lmaxy)) {
+                    double xs[4] = {lminx, lmaxx, lmaxx, lminx};
+                    double ys[4] = {lminy, lminy, lmaxy, lmaxy};
+                    double wmnx=1e18, wmny=1e18, wmxx=-1e18, wmxy=-1e18;
+                    for (int k = 0; k < 4; ++k) {
+                        double px = xs[k], py = ys[k];
+                        affine_point(&px, &py, sx, sy, rot, tx, ty);
+                        if (px<wmnx)wmnx=px; if (py<wmny)wmny=py;
+                        if (px>wmxx)wmxx=px; if (py>wmxy)wmxy=py;
+                    }
+                    double cw = g_clx1-g_clx0, ch = g_cly1-g_cly0;
+                    int outside  = (wmxx<g_clx0||wmnx>g_clx1||wmxy<g_cly0||wmny>g_cly1);
+                    int overflow = (wmnx<g_clx0-cw||wmxx>g_clx1+cw||wmny<g_cly0-ch||wmxy>g_cly1+ch);
+                    if (outside || overflow) return;
+                }
+                break;
+            }
+            default: {
+                double rpx, rpy;
+                if (entity_local_repr(obj, &rpx, &rpy)) {
+                    affine_point(&rpx, &rpy, sx, sy, rot, tx, ty);
+                    if (rpx<g_clx0||rpx>g_clx1||rpy<g_cly0||rpy>g_cly1) return;
+                }
+            }
+        }
+    }
+
     switch (obj->fixedtype) {
         case DWG_TYPE_LINE:
-            write_line(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
+            *count_ptr += write_line(w, dwg, obj, tx, ty, sx, sy, rot); break;
         case DWG_TYPE_CIRCLE:
             write_circle(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
         case DWG_TYPE_ARC:
             write_arc(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
         case DWG_TYPE_LWPOLYLINE:
-            write_lwpolyline(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
+            *count_ptr += write_lwpolyline(w, dwg, obj, tx, ty, sx, sy, rot); break;
         case DWG_TYPE_POLYLINE_2D:
             write_polyline_2d(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
         case DWG_TYPE_POLYLINE_3D:

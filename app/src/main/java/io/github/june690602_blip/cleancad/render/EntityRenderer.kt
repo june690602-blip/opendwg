@@ -10,7 +10,9 @@ class EntityRenderer {
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        // Phase 9.2: 2f → 1f. 대용량 도면 줌아웃 시 빽빽한 entity가 검은/흰 떡덩어리로
+        // 뭉치는 것을 완화. anti-alias로 회색 trail 효과.
+        strokeWidth = 1f
         color = Color.BLACK
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
@@ -30,12 +32,43 @@ class EntityRenderer {
     private var defaultLineColor: Int = Color.BLACK
     private var layerColorMap: Map<String, Int> = emptyMap()
     private var entityColorByIdentity: Map<DxfEntity, Int> = emptyMap()
+    private var isDarkBg: Boolean = false
+
+    /** displayExtents 등 "이 박스 밖 엔티티는 영구 컬링" 용도. null이면 컬링 없음.
+     *  화면 viewport와 별개 — 사용자가 줌아웃해도 outlier가 다시 보이지 않도록. */
+    private var renderBounds: BoundingBox? = null
+
+    /** LINE batch: 색상별로 primitive FloatArray로 [x1,y1,x2,y2, ...] 누적 후 한 번에 drawLines.
+     *  ArrayList<Float>는 매 frame 수십만 Float autobox → GC 폭증 (Phase 9.2 1차 시도 후 Davey
+     *  1~7초 잔존). primitive FloatArray로 autoboxing 제거. */
+    private val lineBatch = HashMap<Int, FloatBuf>(64)
+
+    private class FloatBuf(initialCapacity: Int = 512) {
+        var arr: FloatArray = FloatArray(initialCapacity); private set
+        var size: Int = 0; private set
+        fun add4(a: Float, b: Float, c: Float, d: Float) {
+            if (size + 4 > arr.size) arr = arr.copyOf((arr.size * 2).coerceAtLeast(size + 4))
+            arr[size]     = a
+            arr[size + 1] = b
+            arr[size + 2] = c
+            arr[size + 3] = d
+            size += 4
+        }
+        fun clear() { size = 0 }
+        /** size 미만만 유효. drawLines 에는 trimmed copy 필요. */
+        fun trimmedCopy(): FloatArray = arr.copyOf(size)
+    }
 
     fun setColors(bgColor: Int, lineColor: Int) {
         this.bgColor = bgColor
         this.defaultLineColor = lineColor
+        this.isDarkBg = ColorInvert.isDarkBackground(bgColor)
         linePaint.color = lineColor
         textPaint.color = lineColor
+    }
+
+    fun setRenderBounds(box: BoundingBox?) {
+        renderBounds = box
     }
 
     fun setLayers(layers: List<Layer>) {
@@ -68,16 +101,23 @@ class EntityRenderer {
         entityColorByIdentity = map
     }
 
-    private fun colorFor(entity: DxfEntity): Int =
-        entityColorByIdentity[entity]
+    private fun colorFor(entity: DxfEntity): Int {
+        val raw = entityColorByIdentity[entity]
             ?: layerColorMap[entity.layer]
             ?: defaultLineColor
+        return ColorInvert.maybeInvert(raw, isDarkBg)
+    }
 
     /** Drawing의 모든 엔티티를 렌더 순서대로 Canvas에 그린다.
      *  컬링 전략:
+     *   - renderBounds(displayExtents) 밖 엔티티 영구 스킵 (outlier 차단 — Phase 9.2)
      *   - viewport 밖 엔티티 스킵 (worldBounds vs viewport)
-     *   - 화면상 너무 작아서 점만도 안 보이는 엔티티 스킵 (< 1px)
-     *   - 텍스트는 base 글자 높이가 4px 미만이면 스킵 (zoom out 상태에서 까만 덩어리 방지) */
+     *   - 화면상 너무 작아서 점만도 안 보이는 엔티티 스킵 (< 2px)
+     *   - 텍스트는 base 글자 높이가 10px 미만이면 스킵 (zoom out 상태에서 까만 덩어리 방지)
+     *  성능 전략 (Phase 9.2):
+     *   - DxfLine 은 색상별 FloatArray 로 누적 후 canvas.drawLines() 한 번으로 flush.
+     *     drawPath 호출 수십만 회 → drawLines 호출 수십 회 (색상 종류 수).
+     *     GPU 명령 큐 ~100배 감소 → 메인 스레드 ANR 해결. */
     fun drawAll(
         entities: List<DxfEntity>,
         canvas: Canvas,
@@ -85,28 +125,57 @@ class EntityRenderer {
         viewport: BoundingBox? = null
     ) {
         val scale = CoordTransform.currentScale(matrix)
+        lineBatch.values.forEach { it.clear() }
         entities.forEach { entity ->
             if (entity !is DxfText && entity !is DxfMText) {
                 val bounds = entity.worldBounds()
                 if (bounds != null) {
+                    val rb = renderBounds
+                    if (rb != null && !bounds.intersects(rb)) return@forEach
                     if (viewport != null && !bounds.intersects(viewport)) return@forEach
-                    // 화면상 1px 미만이면 스킵
+                    // Phase 9.2: pixel cull 강화. 가로+세로 합이 3px 미만이면 스킵.
+                    // 이전 (W<2 AND H<2)는 길쭉한 segment를 못 막아 떡덩어리 잔존.
                     val pixW = bounds.width * scale
                     val pixH = bounds.height * scale
-                    if (pixW < 1.0 && pixH < 1.0) return@forEach
+                    if (pixW + pixH < 3.0) return@forEach
                 }
-                draw(entity, canvas, matrix)
+                if (entity is DxfLine) {
+                    val s = CoordTransform.worldToScreen(entity.start, matrix)
+                    val e = CoordTransform.worldToScreen(entity.end, matrix)
+                    val color = colorFor(entity)
+                    val buf = lineBatch.getOrPut(color) { FloatBuf(1024) }
+                    buf.add4(s.x, s.y, e.x, e.y)
+                } else {
+                    draw(entity, canvas, matrix)
+                }
             }
+        }
+        // flush LINE batch — 색상마다 한 번씩 drawLines.
+        for ((color, buf) in lineBatch) {
+            if (buf.size == 0) continue
+            linePaint.color = color
+            canvas.drawLines(buf.trimmedCopy(), linePaint)
         }
         entities.forEach { entity ->
             when (entity) {
                 is DxfText -> {
                     val pixSize = entity.height * scale
-                    if (pixSize >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                    if (pixSize < MIN_TEXT_BASE_PIXELS) return@forEach
+                    // text도 viewport culling 적용 (Phase 9.1)
+                    if (viewport != null) {
+                        val b = entity.worldBounds()
+                        if (b != null && !b.intersects(viewport)) return@forEach
+                    }
+                    draw(entity, canvas, matrix)
                 }
                 is DxfMText -> {
                     val pixSize = entity.height * scale
-                    if (pixSize >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                    if (pixSize < MIN_TEXT_BASE_PIXELS) return@forEach
+                    if (viewport != null) {
+                        val b = entity.worldBounds()
+                        if (b != null && !b.intersects(viewport)) return@forEach
+                    }
+                    draw(entity, canvas, matrix)
                 }
                 else -> { /* already drawn in first pass */ }
             }
@@ -115,8 +184,8 @@ class EntityRenderer {
 
     private companion object {
         /** zoom out 상태에서 글자 자체가 이 픽셀 수보다 작아지면 렌더 자체를 스킵.
-         *  까만 글자 덩어리(수많은 작은 텍스트 mass) 방지. */
-        const val MIN_TEXT_BASE_PIXELS: Double = 4.0
+         *  까만 글자 덩어리(수많은 작은 텍스트 mass) 방지. Phase 9.1: 4→10 (대용량 도면 ANR 방지). */
+        const val MIN_TEXT_BASE_PIXELS: Double = 10.0
 
         /** HATCH 솔리드 채우기 알파 — 0x40 = 25% 불투명도 (반투명).
          *  패턴 hatch가 미지원이라 검정 솔리드 덩어리 방지 목적. */

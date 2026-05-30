@@ -22,7 +22,20 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 
 **현재 HEAD: `38a9f58`** — 구 DXF 파이프라인 삭제 완료 (Task 11).
 
-**다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-28-phase8.8-resume.md`
+**다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-30-phase10-render-performance.md`
+
+> **Phase 9.4 (2026-05-30) XCLIP 완료 — 떡덩어리/겹침 해결, 사용자 만족.**
+> 근본 원인: XCLIP(SPATIAL_FILTER) 미지원 — crop/xref 블록이 클립 무시하고 블록 전체를 렌더해 겹침.
+> 수정: `dwg_serialize.c`가 INSERT의 SPATIAL_FILTER(xdic→ACAD_FILTER→SPATIAL)로 자식 엔티티를
+> **기하 클리핑**(선/폴리라인 Liang-Barsky 분할, 해치 overflow 컬링, 중첩 crop 클립 교집합).
+> 좌표 모델 실측 확정(`clip_world = childTransform(invXform2D(clip_vert))`). seg_clipped=5,115,
+> emitted 435,609→187,907. **시트 탭 제거**(무의미 판단, SheetClusterer는 displayExtents용 내부 유지),
+> displayExtents=시트합집합, INSERT base_pt 보정 포함. **모두 working tree 미커밋.**
+> ⚠️ 에뮬레이터 함정: `adb install -r`이 native .so 갱신 안 함 → native 변경 시 uninstall+install 필수.
+>
+> **다음(Phase 10): 렌더링 성능 최적화** — 팬/줌 렉. 근본원인=매 프레임 188K 엔티티 전체 순회+
+> worldBounds 재계산, 공간 인덱스/캐싱 없음. plan: worldBounds 캐싱 → 공간 그리드 인덱스 → 비트맵 캐시.
+> 상세는 Phase 10 핸드오프 참조.
 
 ### 작동 중 ✅
 - LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
