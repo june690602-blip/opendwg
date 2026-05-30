@@ -27,23 +27,26 @@
             android:name=".ui.ViewerActivity"
             android:label="@string/app_name"
             android:exported="true">
+            <!-- 1) .dwg MIME 을 제대로 지정하는 앱/파일매니저용 (표준 DWG MIME 변종 망라) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/acad" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/x-dwg" />
+                <data android:mimeType="application/dwg" />
+                <data android:mimeType="image/vnd.dwg" />
+                <data android:mimeType="image/x-dwg" />
+                <data android:mimeType="drawing/dwg" />
+                <data android:mimeType="application/x-autocad" />
             </intent-filter>
-            <!-- pathPattern only works for file:// URIs; content:// URIs (modern file managers)
-                 are caught by the MIME filters above. Kept for legacy file:// compatibility. -->
+            <!-- 2) 카카오톡 등은 .dwg 를 일반 바이너리(application/octet-stream)로 넘긴다.
+                 content:// 에는 pathPattern 이 안 걸리므로 octet-stream 을 폭넓게 받되,
+                 실제 DWG 여부는 ViewerActivity 가 매직헤더("AC1x")/확장자로 검증해
+                 .dwg 가 아니면 안내 후 종료한다 (DrawingViewModel.isLikelyDwg). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/octet-stream"
-                      android:pathPattern=".*\\.dwg" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 

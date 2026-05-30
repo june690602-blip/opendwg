@@ -48,12 +48,19 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 > 상세는 Phase 10 핸드오프 참조.
 
 ### 작동 중 ✅
+- **파일 연결(열기) — 카톡 등에서 .dwg "열기" 시 앱 실행 (Phase 11)** — AndroidManifest VIEW 필터를
+  표준 DWG MIME(application/acad·x-dwg·dwg, image/vnd.dwg·x-dwg, drawing/dwg, application/x-autocad)
+  + `application/octet-stream`(카톡은 .dwg 를 일반 바이너리로 넘김)로 확장. octet-stream 을 폭넓게
+  받는 부작용은 `DrawingViewModel.isLikelyDwg`(파일명 .dwg / 매직헤더 "AC1x"·"AC2x")로 파싱 전 차단,
+  아니면 안내 후 에러화면. 검증: `cmd package query-activities` 로 octet-stream/image/vnd.dwg VIEW
+  모두 ViewerActivity 해석 확인, octet-stream+실파일 → 렌더 성공, isLikelyDwg 단위테스트 9개.
+  ⚠️ 카톡이 octet-stream 대신 */* 로 줄 가능성은 실폰 테스트로만 확정(미검증, 필요 시 필터 추가 확장).
 - LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
 - 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
 - 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
 - 13MB DWG 파일 1초 내 파싱 (110K objects → 100K entities)
-- 단위 테스트 63개 통과 (NativeDecoder 18 + ColorInvert 13 + AciColor 10 + SheetClusterer 6 +
-  CoordTransform 6 + SpatialIndex 6 + EntityColorDecoding 3 + ExampleUnit 1)
+- 단위 테스트 73개 통과 (NativeDecoder 19 + ColorInvert 13 + AciColor 10 + DwgValidation 9 +
+  SheetClusterer 6 + CoordTransform 6 + SpatialIndex 6 + EntityColorDecoding 3 + ExampleUnit 1)
 - LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
 - **MULTILEADER(MLEADER) 지원 (Phase 10.1)** — 리더선→LWPOLYLINE, dogleg→LINE, content→MTEXT로
   분해해 native에서 내보냄(디코더 변경 없음). `04_참고도면.dwg` 239개 MLEADER 주석 렌더 확인.

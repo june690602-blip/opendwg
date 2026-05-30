@@ -46,6 +46,13 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                     val t1 = System.currentTimeMillis()
                     Log.i(TAG, "load: copied ${dwgFile.length()} bytes to cache in ${t1 - t0}ms ($displayName)")
 
+                    // octet-stream 인텐트 필터를 폭넓게 열어둔 탓에 카톡 외 임의 바이너리도
+                    // 들어올 수 있다. 무거운 네이티브 파싱 전에 실제 DWG 인지 가볍게 검증한다.
+                    if (!isLikelyDwg(dwgFile, displayName)) {
+                        Log.w(TAG, "load: not a DWG — name=$displayName")
+                        throw IOException("DWG 도면 파일이 아닙니다. .dwg 파일을 열어주세요.")
+                    }
+
                     val drawing = NativeDwg.parseToDrawing(dwgFile.absolutePath)
                     val t2 = System.currentTimeMillis()
                     val sheets = SheetClusterer.cluster(drawing.entities)
@@ -86,4 +93,24 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         private const val TAG = "CleanCAD/ViewModel"
     }
+}
+
+/**
+ * 복사된 파일이 실제 DWG 인지 가볍게 검증한다.
+ * - 파일명이 .dwg 로 끝나면 신뢰(파일매니저/카톡은 원본 파일명을 유지).
+ * - 그 외엔 DWG 매직헤더로 판별: 모든 DWG 는 "AC" + 버전("AC1003"~"AC1032", "AC1.x", "AC2.10").
+ *
+ * octet-stream 인텐트 필터를 폭넓게 열어둔 탓에 임의 바이너리가 들어올 수 있어,
+ * 무거운 네이티브 파싱 전에 이걸로 거른다.
+ */
+internal fun isLikelyDwg(file: File, displayName: String): Boolean {
+    if (displayName.endsWith(".dwg", ignoreCase = true)) return true
+    return runCatching {
+        file.inputStream().use { s ->
+            val h = ByteArray(6)
+            val n = s.read(h)
+            n >= 3 && h[0] == 'A'.code.toByte() && h[1] == 'C'.code.toByte() &&
+                (h[2] == '1'.code.toByte() || h[2] == '2'.code.toByte())
+        }
+    }.getOrDefault(false)
 }
