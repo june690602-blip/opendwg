@@ -23,6 +23,7 @@
 #define DWGB_TYPE_SPLINE      14
 #define DWGB_TYPE_3DFACE      15
 #define DWGB_TYPE_SOLID       16
+#define DWGB_TYPE_POINT       17
 #define DWGB_TYPE_UNKNOWN     0xFF
 
 /**

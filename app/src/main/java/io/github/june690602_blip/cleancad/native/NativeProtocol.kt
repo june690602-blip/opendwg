@@ -19,6 +19,7 @@ object NativeProtocol {
     const val TYPE_SPLINE: Int = 14
     const val TYPE_3DFACE: Int = 15
     const val TYPE_SOLID: Int = 16
+    const val TYPE_POINT: Int = 17
     const val TYPE_UNKNOWN: Int = 0xFF
 
     const val COLOR_BYLAYER: Short = -1

@@ -14,6 +14,7 @@ import io.github.june690602_blip.cleancad.model.DxfLeader
 import io.github.june690602_blip.cleancad.model.DxfLine
 import io.github.june690602_blip.cleancad.model.DxfLwPolyline
 import io.github.june690602_blip.cleancad.model.DxfMText
+import io.github.june690602_blip.cleancad.model.DxfPoint
 import io.github.june690602_blip.cleancad.model.DxfPolyline
 import io.github.june690602_blip.cleancad.model.DxfSolid
 import io.github.june690602_blip.cleancad.model.DxfSpline
@@ -122,6 +123,7 @@ object NativeDecoder {
             val layerName = layerNameAt(layers, layerIdx)
             val entity: DxfEntity? = when (typeId) {
                 NativeProtocol.TYPE_LINE        -> decodeLine(buf, layerName)
+                NativeProtocol.TYPE_POINT       -> decodePoint(buf, layerName)
                 NativeProtocol.TYPE_CIRCLE      -> decodeCircle(buf, layerName)
                 NativeProtocol.TYPE_ARC         -> decodeArc(buf, layerName)
                 NativeProtocol.TYPE_LWPOLYLINE  -> decodeLwPolyline(buf, layerName)
@@ -153,6 +155,11 @@ object NativeDecoder {
         val sx = buf.double; val sy = buf.double
         val ex = buf.double; val ey = buf.double
         return DxfLine(layer, Vec2(sx, sy), Vec2(ex, ey))
+    }
+
+    private fun decodePoint(buf: ByteBuffer, layer: String): DxfPoint {
+        val x = buf.double; val y = buf.double
+        return DxfPoint(layer, Vec2(x, y))
     }
 
     private fun decodeCircle(buf: ByteBuffer, layer: String): DxfCircle {

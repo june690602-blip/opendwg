@@ -678,6 +678,17 @@ static int write_line(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     return 1;
 }
 
+static void write_point(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                        double tx, double ty, double sx, double sy, double rot) {
+    Dwg_Entity_POINT *e = obj->tio.entity->tio.POINT;
+    double px = e->x, py = e->y;
+    if (tx != 0.0 || ty != 0.0 || sx != 1.0 || sy != 1.0 || rot != 0.0) {
+        affine_point(&px, &py, sx, sy, rot, tx, ty);
+    }
+    write_entity_header(w, dwg, obj, DWGB_TYPE_POINT);
+    w_f64(w, px); w_f64(w, py);
+}
+
 static void write_circle(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                          double tx, double ty, double sx, double sy, double rot) {
     Dwg_Entity_CIRCLE *e = obj->tio.entity->tio.CIRCLE;
@@ -749,6 +760,7 @@ static Dwg_Object_SPATIAL_FILTER *insert_xclip(const Dwg_Data *dwg, const Dwg_Ob
 static int entity_local_repr(const Dwg_Object *obj, double *px, double *py) {
     if (!obj || !obj->tio.entity) return 0;
     switch (obj->fixedtype) {
+        case DWG_TYPE_POINT:  { Dwg_Entity_POINT  *e=obj->tio.entity->tio.POINT;  *px=e->x;        *py=e->y;        return 1; }
         case DWG_TYPE_LINE:   { Dwg_Entity_LINE   *e=obj->tio.entity->tio.LINE;   *px=e->start.x;  *py=e->start.y;  return 1; }
         case DWG_TYPE_CIRCLE: { Dwg_Entity_CIRCLE *e=obj->tio.entity->tio.CIRCLE; *px=e->center.x; *py=e->center.y; return 1; }
         case DWG_TYPE_ARC:    { Dwg_Entity_ARC    *e=obj->tio.entity->tio.ARC;    *px=e->center.x; *py=e->center.y; return 1; }
@@ -999,6 +1011,8 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     switch (obj->fixedtype) {
         case DWG_TYPE_LINE:
             *count_ptr += write_line(w, dwg, obj, tx, ty, sx, sy, rot); break;
+        case DWG_TYPE_POINT:
+            write_point(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
         case DWG_TYPE_CIRCLE:
             write_circle(w, dwg, obj, tx, ty, sx, sy, rot); (*count_ptr)++; break;
         case DWG_TYPE_ARC:

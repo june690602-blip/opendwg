@@ -165,9 +165,12 @@ class EntityRenderer {
                 if (rb != null && !bounds.intersects(rb)) continue
                 if (viewport != null && !bounds.intersects(viewport)) continue
                 // Phase 9.2: pixel cull. 가로+세로 합이 3px 미만이면 스킵.
-                val pixW = bounds.width * scale
-                val pixH = bounds.height * scale
-                if (pixW + pixH < 3.0) continue
+                // 단 POINT 는 크기 0이라 픽셀컬에 걸리므로 예외 — 고정 화면 점으로 항상 렌더.
+                if (entity !is DxfPoint) {
+                    val pixW = bounds.width * scale
+                    val pixH = bounds.height * scale
+                    if (pixW + pixH < 3.0) continue
+                }
             }
             if (entity is DxfLine) {
                 val s = CoordTransform.worldToScreen(entity.start, matrix)
@@ -210,6 +213,9 @@ class EntityRenderer {
         /** HATCH 솔리드 채우기 알파 — 0x40 = 25% 불투명도 (반투명).
          *  패턴 hatch가 미지원이라 검정 솔리드 덩어리 방지 목적. */
         const val HATCH_FILL_ALPHA_MASK: Int = 0x40000000
+
+        /** POINT 점 마커 반경 (화면 px, 줌 무관 고정). */
+        const val POINT_RADIUS_PX: Float = 1.5f
     }
 
     private fun draw(entity: DxfEntity, canvas: Canvas, matrix: Matrix) {
@@ -217,6 +223,7 @@ class EntityRenderer {
         textPaint.color = colorFor(entity)
         when (entity) {
             is DxfLine       -> drawLine(entity, canvas, matrix)
+            is DxfPoint      -> drawPoint(entity, canvas, matrix)
             is DxfCircle     -> drawCircle(entity, canvas, matrix)
             is DxfArc        -> drawArc(entity, canvas, matrix)
             is DxfLwPolyline -> drawLwPolyline(entity, canvas, matrix)
@@ -238,6 +245,13 @@ class EntityRenderer {
         val s = CoordTransform.worldToScreen(e.start, matrix)
         val end = CoordTransform.worldToScreen(e.end, matrix)
         canvas.drawLine(s.x, s.y, end.x, end.y, linePaint)
+    }
+
+    /** POINT: 줌 무관 고정 화면 크기의 작은 점으로 렌더 (CAD PDMODE=0 기본 동작 근사). */
+    private fun drawPoint(e: DxfPoint, canvas: Canvas, matrix: Matrix) {
+        val p = CoordTransform.worldToScreen(e.position, matrix)
+        fillPaint.color = colorFor(e)
+        canvas.drawCircle(p.x, p.y, POINT_RADIUS_PX, fillPaint)
     }
 
     private fun drawCircle(e: DxfCircle, canvas: Canvas, matrix: Matrix) {

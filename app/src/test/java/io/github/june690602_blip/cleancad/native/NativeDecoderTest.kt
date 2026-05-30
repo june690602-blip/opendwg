@@ -109,6 +109,30 @@ class NativeDecoderTest {
         assertEquals("0", line.layer)
     }
 
+    private fun pointEntity(layerIdx: Int, x: Double, y: Double): ByteArray {
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 2).order(ByteOrder.LITTLE_ENDIAN)
+        b.put(NativeProtocol.TYPE_POINT.toByte())
+        b.putInt(layerIdx)
+        b.putShort(NativeProtocol.COLOR_BYLAYER)
+        b.putInt(0)
+        b.putDouble(x); b.putDouble(y)
+        return b.array()
+    }
+
+    @Test
+    fun decode_singlePoint_returnsDxfPointAtPosition() {
+        val bytes = buildBuffer(
+            layers = listOf(Triple("nodes", 7.toShort(), 0)),
+            entities = listOf(pointEntity(0, 12.5, -3.0))
+        )
+        val drawing = NativeDecoder.decode(bytes)
+        assertEquals(1, drawing.entities.size)
+        val pt = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfPoint
+        assertEquals("nodes", pt.layer)
+        assertEquals(12.5, pt.position.x, 1e-9)
+        assertEquals(-3.0, pt.position.y, 1e-9)
+    }
+
     private fun circleEntity(layerIdx: Int, cx: Double, cy: Double, r: Double): ByteArray {
         val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 3).order(ByteOrder.LITTLE_ENDIAN)
         b.put(NativeProtocol.TYPE_CIRCLE.toByte())

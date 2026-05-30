@@ -12,6 +12,11 @@ data class DxfLine(
     val end: Vec2
 ) : DxfEntity()
 
+data class DxfPoint(
+    override val layer: String,
+    val position: Vec2
+) : DxfEntity()
+
 data class DxfCircle(
     override val layer: String,
     val center: Vec2,

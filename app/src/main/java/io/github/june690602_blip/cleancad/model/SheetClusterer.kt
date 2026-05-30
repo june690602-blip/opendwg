@@ -126,6 +126,7 @@ private fun DxfEntity.centroid(): Vec2? = when (this) {
     is DxfDimension  -> definitionPoint
     is DxfHatch      -> paths.flatten().averageOrNull()
     is DxfLeader     -> vertices.firstOrNull()
+    is DxfPoint      -> null   // 점은 시트 클러스터링에서 제외 (다수의 노드 마커가 그리드를 왜곡)
     is DxfUnknown    -> null
 }
 

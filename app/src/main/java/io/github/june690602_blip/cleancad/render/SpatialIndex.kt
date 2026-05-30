@@ -159,6 +159,7 @@ class SpatialIndex private constructor(
          * Insert/Unknown 은 그려도 아무것도 안 나오므로 null → 인덱스 제외.
          */
         internal fun boundsFor(e: DxfEntity): BoundingBox? = when (e) {
+            is DxfPoint -> BoundingBox(e.position.x, e.position.y, e.position.x, e.position.y)
             is DxfText  -> textBounds(e.insertionPoint, e.height, e.text)
             is DxfMText -> textBounds(e.insertionPoint, e.height, e.text)
             is DxfDimension -> BoundingBox(
