@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -73,9 +74,15 @@ class ViewerActivity : AppCompatActivity() {
         }
 
         if (viewModel.state.value is DrawingState.Idle) {
-            val uri = intent.data
+            val uri = incomingUri()
             if (uri != null) viewModel.load(uri) else openDoc.launch(arrayOf("*/*"))
         }
+    }
+
+    /** VIEW 면 intent.data, 공유(SEND)면 EXTRA_STREAM 에서 URI 를 꺼낸다. */
+    private fun incomingUri(): Uri? = when (intent?.action) {
+        Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        else -> intent?.data
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {

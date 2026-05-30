@@ -48,6 +48,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
+            <!-- 3) 공유(SEND) 받기 — 카톡 등이 미리보기 '열기' 대신 시스템 공유시트로 보낼 때.
+                 공유시트는 시스템이 띄워 패키지 가시성 제한을 안 받으므로(안드 11+ 에서도)
+                 '공유 → CleanCAD' 경로가 동작한다. URI 는 EXTRA_STREAM 으로 들어온다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/acad" />
+                <data android:mimeType="application/x-dwg" />
+                <data android:mimeType="application/dwg" />
+                <data android:mimeType="image/vnd.dwg" />
+                <data android:mimeType="image/x-dwg" />
+                <data android:mimeType="drawing/dwg" />
+                <data android:mimeType="application/x-autocad" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
         </activity>
 
         <activity

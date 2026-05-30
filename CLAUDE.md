@@ -54,7 +54,14 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
   받는 부작용은 `DrawingViewModel.isLikelyDwg`(파일명 .dwg / 매직헤더 "AC1x"·"AC2x")로 파싱 전 차단,
   아니면 안내 후 에러화면. 검증: `cmd package query-activities` 로 octet-stream/image/vnd.dwg VIEW
   모두 ViewerActivity 해석 확인, octet-stream+실파일 → 렌더 성공, isLikelyDwg 단위테스트 9개.
-  ⚠️ 카톡이 octet-stream 대신 */* 로 줄 가능성은 실폰 테스트로만 확정(미검증, 필요 시 필터 추가 확장).
+  S21+(안드14~15) 카톡 "열기" → image/vnd.dwg 로 시스템 선택창 동작 확인.
+- **공유(SEND) 받기 + 안드16 카톡 한계 (Phase 11.2)** — S25+(안드16)에선 카톡 미리보기 "열기"가
+  인텐트를 쏘기 전에 자체 queryIntentActivities 로 핸들러를 찾는데, 안드 11+ 패키지 가시성 때문에
+  우리 앱을 못 봐서 "앱 없음"으로 끝남(로그상 START/VIEW 인텐트 자체가 없음 → 우리 필터 도달 못 함,
+  카톡측 한계라 우리가 못 고침). 우회: ViewerActivity 에 **ACTION_SEND 필터 + EXTRA_STREAM 처리**
+  (`incomingUri()`, `IntentCompat.getParcelableExtra`) 추가 → 시스템 공유시트(가시성 무관)로
+  "공유 → CleanCAD" 경로 확보. 검증: SEND 필터 query-activities 해석 + EXTRA_STREAM URI 로드 SUCCESS.
+  시스템 경로(내 파일→열기)는 S25+ 에서 정상 동작 확인.
 - **Play Store 출시 준비 (Phase 11.1)** — 릴리즈 R8 minify+resource shrink 켬(`proguard-rules.pro`에
   JNI/NativeDwg keep), 전용 블루프린트 아이콘(적응형 벡터 + 5밀도 webp + `docs/store/icon-512.png`),
   `docs/privacy.html`(수집0), `docs/store/listing.md`(KR/EN), 스크린샷 3장. 검증: R8 릴리즈 실기
