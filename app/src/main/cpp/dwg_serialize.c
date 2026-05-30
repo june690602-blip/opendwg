@@ -527,6 +527,74 @@ static void write_leader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     }
 }
 
+/* ---- 9a-4b: MULTILEADER (MLEADER) ----
+ * 현대식 다중 지시선. 기하는 ctx(AnnotContext)에 들어있다.
+ * 디코더 변경 없이: 리더 선 → LWPOLYLINE, dogleg(랜딩선) → LINE, 텍스트 content → MTEXT
+ * 로 분해해 기존 레코드 포맷으로 내보낸다. 색상/레이어는 MLEADER 엔티티 헤더에서 가져온다. */
+static void write_multileader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                              double tx, double ty, double sx, double sy, double rot,
+                              int *count_ptr) {
+    Dwg_Entity_MULTILEADER *e = obj->tio.entity->tio.MULTILEADER;
+    if (!e) return;
+    Dwg_MLEADER_AnnotContext *ctx = &e->ctx;
+    double scale_avg = (sx + sy) * 0.5;
+    const double DEG = 180.0 / 3.14159265358979323846;
+
+    /* 1) 리더 선들: 각 node의 각 line의 points → 열린 LWPOLYLINE */
+    for (BITCODE_BL li = 0; li < ctx->num_leaders && w->ok; ++li) {
+        Dwg_LEADER_Node *node = &ctx->leaders[li];
+        if (!node) continue;
+        for (BITCODE_BL ji = 0; ji < node->num_lines && w->ok; ++ji) {
+            Dwg_LEADER_Line *line = &node->lines[ji];
+            if (!line || !line->points || line->num_points < 2) continue;
+            if (*count_ptr >= DWGB_MAX_ENTITIES) return;
+            write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
+            w_u8(w, 0);                                /* open */
+            w_i32(w, (int32_t)line->num_points);
+            for (BITCODE_BL pi = 0; pi < line->num_points; ++pi) {
+                double px = line->points[pi].x, py = line->points[pi].y;
+                affine_point(&px, &py, sx, sy, rot, tx, ty);
+                w_f64(w, px); w_f64(w, py);
+            }
+            (*count_ptr)++;
+        }
+        /* dogleg(랜딩선): lastleaderlinepoint → +dogleg_vector*dogleg_length */
+        if (node->has_dogleg && node->dogleg_length != 0.0
+            && *count_ptr < DWGB_MAX_ENTITIES && w->ok) {
+            double ax = node->lastleaderlinepoint.x, ay = node->lastleaderlinepoint.y;
+            double bx = ax + node->dogleg_vector.x * node->dogleg_length;
+            double by = ay + node->dogleg_vector.y * node->dogleg_length;
+            affine_point(&ax, &ay, sx, sy, rot, tx, ty);
+            affine_point(&bx, &by, sx, sy, rot, tx, ty);
+            write_entity_header(w, dwg, obj, DWGB_TYPE_LINE);
+            w_f64(w, ax); w_f64(w, ay); w_f64(w, bx); w_f64(w, by);
+            (*count_ptr)++;
+        }
+    }
+
+    /* 2) 텍스트 content → MTEXT */
+    if (ctx->has_content_txt && ctx->content.txt.default_text
+        && *count_ptr < DWGB_MAX_ENTITIES && w->ok) {
+        char *utf8 = tv_to_utf8(dwg, ctx->content.txt.default_text);
+        if (utf8 && utf8[0]) {
+            double px = ctx->content.txt.location.x;
+            double py = ctx->content.txt.location.y;
+            affine_point(&px, &py, sx, sy, rot, tx, ty);
+            double h = ctx->text_height;
+            if (h <= 0.0) h = ctx->content.txt.height;
+            if (h <= 0.0) h = 2.5;                     /* 최후 폴백 */
+            double rdeg = ctx->content.txt.rotation * DEG + rot * DEG;
+            write_entity_header(w, dwg, obj, DWGB_TYPE_MTEXT);
+            w_f64(w, px); w_f64(w, py);
+            w_f64(w, h * fabs(scale_avg));
+            w_f64(w, rdeg);
+            w_string_utf8(w, utf8);
+            (*count_ptr)++;
+        }
+        free(utf8);
+    }
+}
+
 /* ---- 9a-5: HATCH ---- */
 
 static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -967,6 +1035,8 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             write_dimension(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
         case DWG_TYPE_INSERT:
             write_insert(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
+        case DWG_TYPE_MULTILEADER:
+            write_multileader(w, dwg, obj, tx, ty, sx, sy, rot, count_ptr); break;
         default: break;
     }
 }

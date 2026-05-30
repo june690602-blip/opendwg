@@ -55,6 +55,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - 단위 테스트 63개 통과 (NativeDecoder 18 + ColorInvert 13 + AciColor 10 + SheetClusterer 6 +
   CoordTransform 6 + SpatialIndex 6 + EntityColorDecoding 3 + ExampleUnit 1)
 - LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
+- **MULTILEADER(MLEADER) 지원 (Phase 10.1)** — 리더선→LWPOLYLINE, dogleg→LINE, content→MTEXT로
+  분해해 native에서 내보냄(디코더 변경 없음). `04_참고도면.dwg` 239개 MLEADER 주석 렌더 확인.
+  ⚠️ 아직 미지원(silently dropped): POINT/IMAGE/WIPEOUT/MINSERT/ATTDEF·ATTRIB/OLE2FRAME — ZWCAD 대비 누락.
 - INSERT 블록 재귀 전개 (depth 5, affine transform)
 - **DIMENSION anonymous block 전개 (Phase 8.5)** — `clone_ins_pt` 변환으로 화살표/연장선/측정값
   텍스트가 제 위치에 렌더. 사용자 확인됨 ("수치들은 다 제자리로 가있네").
