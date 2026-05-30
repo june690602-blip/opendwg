@@ -137,3 +137,44 @@ Phase 9.4에서 한 일 요약(상세: `2026-05-30-phase9.4-xclip-spatial-filter
 - 시트 탭 제거됨 — 전체보기 + 자유 팬/줌. fit/renderBounds는 시트합집합 displayExtents 사용.
 - 남은 시각 이슈(사소, perf와 별개): XCLIP INSERT 밖 orphan 엔티티 일부 잔존, 폴리곤 클립 bbox 근사.
 - base_pt 보정 + XCLIP 미커밋 — 정식 커밋 전 다른 실파일 추가 검증 권장.
+
+---
+
+## 7. 완료 노트 (2026-05-30) — #1+#2 구현, #3 불필요 판단
+
+**한 일:** `render/SpatialIndex.kt` 신규. 로드 시 1회 ① 엔티티별 worldBounds 캐시(평행 배열)
++ ② 균일 그리드(긴 축 128분할) 구축. `EntityRenderer.drawAll`을 인덱스 기반으로 재작성 —
+viewport와 겹치는 셀의 후보만 `query()`로 추려 캐시 bounds로 컬링. 텍스트/Dimension/Leader/
+Spline/Ellipse도 인덱싱(텍스트는 회전 무관 넉넉한 정사각 근사 bounds)해 viewport 컬링 추가.
+전역 `worldBounds()`는 미변경(computeExtents/클러스터링 영향 0) — 보강 bounds는 `SpatialIndex.boundsFor`에 격리.
+
+**변경 파일(미커밋):** `render/SpatialIndex.kt`(신규), `render/EntityRenderer.kt`,
+`render/DrawingView.kt`(drawAll 시그니처: entities 인자 제거), `app/src/test/.../render/SpatialIndexTest.kt`(신규 6),
+`CLAUDE.md`. (`EntityBounds.kt`/`NativeDecoder.kt`는 미변경.)
+
+**측정 (`04_chamgo.dwg`, 187,907 엔티티, 에뮬 `Medium_Phone_API_36.1`, gfxinfo + drawAll nanoTime):**
+
+| 시나리오 | Baseline(0478a52) 50th | Phase 10 50th | drawAll CPU | 후보수 |
+|---|---|---|---|---|
+| Fit 팬(완전 줌아웃) | 1600ms | 97~150ms | 42~60ms | ~87K~147K |
+| 중간 줌 9x (시트 보기) | — | 18ms | 4~6ms | ~230~310 |
+| 고배율 81x (디테일) | — | 17ms | 1~3.5ms | 12 |
+
+핵심: 줌아웃 worst case도 ~10–16× 개선(GC 폭증 제거). **조금만 줌인하면(9x↑) ~60fps**.
+query 비용은 fit에서도 5~7.5ms로 작음(병목 아님) — 남은 fit 비용은 다수 후보 순회 자체.
+
+**#3(비트맵 캐시) 불필요 판단:** fit 팬(전체가 화면에 보여 팬 가치 낮음)이라는 드문 케이스만
+느림. 작업 줌은 이미 부드러움. 비트맵 캐시는 줌 변경 시 무효(핀치엔 무력)하고, 사용자 승인 시각
+출력에 캐싱 레이어 회귀 위험·메모리 추가 → 효용 대비 비용 큼. golden principle "지금 필요한 것만".
+
+**시각 검증:** 줌인 시 한글("모어레스 건축사사무소")/치수("9,000"·"7,200")/표제란 텍스트 정상,
+인코딩·색상 유지, 누락 없음. 텍스트 viewport 컬링(신규)은 넉넉한 근사 bounds로 edge 조기 컬링 없음.
+
+**측정 함정(다음 세션 참고):**
+- 에뮬 production 빌드라 `adb root`/`sendevent` 불가(SELinux가 shell→input device 차단) →
+  멀티터치 핀치 주입 불가. 줌 상태 측정은 `onDoubleTap` 임시 줌인으로 대체 후 되돌림.
+- Git Bash가 `/data/local/tmp` 등 경로를 Windows 경로로 변환 → `MSYS_NO_PATHCONV=1` 필요.
+- Kotlin만 변경이라 `adb install -r`로 OK(native 미변경).
+
+**후속 후보(우선순위 낮음):** ① fit 팬도 매끄럽게 하려면 비트맵/타일 캐시(#3) 또는 저줌 LOD
+(셀 단위 대표 렌더). ② HATCH 패턴(Phase 8.6). ③ "ㄱ 마커" 조사(Task 12).

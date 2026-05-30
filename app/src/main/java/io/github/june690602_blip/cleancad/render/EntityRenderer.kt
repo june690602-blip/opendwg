@@ -34,6 +34,15 @@ class EntityRenderer {
     private var entityColorByIdentity: Map<DxfEntity, Int> = emptyMap()
     private var isDarkBg: Boolean = false
 
+    /** 현재 도면의 엔티티 (렌더 순서). drawAll 은 이 리스트 + [index] 로 동작. */
+    private var entities: List<DxfEntity> = emptyList()
+
+    /** 공간 인덱스 + worldBounds 캐시 (Phase 10). null 이면 전체 순회 폴백. */
+    private var index: SpatialIndex? = null
+
+    /** viewport 조회 결과 재사용 버퍼 (UI 스레드 전용). */
+    private val visible = IntList()
+
     /** displayExtents 등 "이 박스 밖 엔티티는 영구 컬링" 용도. null이면 컬링 없음.
      *  화면 viewport와 별개 — 사용자가 줌아웃해도 outlier가 다시 보이지 않도록. */
     private var renderBounds: BoundingBox? = null
@@ -80,6 +89,9 @@ class EntityRenderer {
     /** Phase 8: Drawing 전체를 받아 엔티티별 색상까지 lookup 가능하게 한다. */
     fun setDrawing(drawing: Drawing) {
         setLayers(drawing.layers)
+        entities = drawing.entities
+        // Phase 10: 로드 시 1회 공간 인덱스 구축 (renderBounds 와 동일한 region 사용).
+        index = SpatialIndex.build(drawing.entities, drawing.displayExtents ?: drawing.extents)
         if (drawing.entityColors.isEmpty()) {
             entityColorByIdentity = emptyMap()
             return
@@ -119,35 +131,52 @@ class EntityRenderer {
      *     drawPath 호출 수십만 회 → drawLines 호출 수십 회 (색상 종류 수).
      *     GPU 명령 큐 ~100배 감소 → 메인 스레드 ANR 해결. */
     fun drawAll(
-        entities: List<DxfEntity>,
         canvas: Canvas,
         matrix: Matrix,
         viewport: BoundingBox? = null
     ) {
+        val ents = entities
+        if (ents.isEmpty()) return
         val scale = CoordTransform.currentScale(matrix)
+        val rb = renderBounds
         lineBatch.values.forEach { it.clear() }
-        entities.forEach { entity ->
-            if (entity !is DxfText && entity !is DxfMText) {
-                val bounds = entity.worldBounds()
-                if (bounds != null) {
-                    val rb = renderBounds
-                    if (rb != null && !bounds.intersects(rb)) return@forEach
-                    if (viewport != null && !bounds.intersects(viewport)) return@forEach
-                    // Phase 9.2: pixel cull 강화. 가로+세로 합이 3px 미만이면 스킵.
-                    // 이전 (W<2 AND H<2)는 길쭉한 segment를 못 막아 떡덩어리 잔존.
-                    val pixW = bounds.width * scale
-                    val pixH = bounds.height * scale
-                    if (pixW + pixH < 3.0) return@forEach
-                }
-                if (entity is DxfLine) {
-                    val s = CoordTransform.worldToScreen(entity.start, matrix)
-                    val e = CoordTransform.worldToScreen(entity.end, matrix)
-                    val color = colorFor(entity)
-                    val buf = lineBatch.getOrPut(color) { FloatBuf(1024) }
-                    buf.add4(s.x, s.y, e.x, e.y)
-                } else {
-                    draw(entity, canvas, matrix)
-                }
+
+        // Phase 10: 공간 인덱스로 viewport 와 겹치는 후보만 추린다 (188K → 가시 영역 수천).
+        // 인덱스/viewport 없으면 전체 순회 폴백.
+        val idx = index
+        val cBounds = idx?.bounds
+        val candidates = visible
+        if (idx != null && viewport != null) {
+            idx.query(viewport, candidates)
+        } else {
+            candidates.clear()
+            for (i in ents.indices) candidates.add(i)
+        }
+        val data = candidates.data
+        val cnt = candidates.size
+
+        // pass 1: 비텍스트 — LINE 은 색상별 FloatArray 배칭, 나머지는 즉시 draw.
+        for (k in 0 until cnt) {
+            val i = data[k]
+            val entity = ents[i]
+            if (entity is DxfText || entity is DxfMText) continue
+            val bounds = cBounds?.get(i) ?: SpatialIndex.boundsFor(entity)
+            if (bounds != null) {
+                if (rb != null && !bounds.intersects(rb)) continue
+                if (viewport != null && !bounds.intersects(viewport)) continue
+                // Phase 9.2: pixel cull. 가로+세로 합이 3px 미만이면 스킵.
+                val pixW = bounds.width * scale
+                val pixH = bounds.height * scale
+                if (pixW + pixH < 3.0) continue
+            }
+            if (entity is DxfLine) {
+                val s = CoordTransform.worldToScreen(entity.start, matrix)
+                val e = CoordTransform.worldToScreen(entity.end, matrix)
+                val color = colorFor(entity)
+                val buf = lineBatch.getOrPut(color) { FloatBuf(1024) }
+                buf.add4(s.x, s.y, e.x, e.y)
+            } else {
+                draw(entity, canvas, matrix)
             }
         }
         // flush LINE batch — 색상마다 한 번씩 drawLines.
@@ -156,25 +185,16 @@ class EntityRenderer {
             linePaint.color = color
             canvas.drawLines(buf.trimmedCopy(), linePaint)
         }
-        entities.forEach { entity ->
-            when (entity) {
+
+        // pass 2: 텍스트 — 지오메트리 위에 얹는다. 후보는 이미 viewport 로 컬링됨.
+        for (k in 0 until cnt) {
+            when (val entity = ents[data[k]]) {
                 is DxfText -> {
-                    val pixSize = entity.height * scale
-                    if (pixSize < MIN_TEXT_BASE_PIXELS) return@forEach
-                    // text도 viewport culling 적용 (Phase 9.1)
-                    if (viewport != null) {
-                        val b = entity.worldBounds()
-                        if (b != null && !b.intersects(viewport)) return@forEach
-                    }
+                    if (entity.height * scale < MIN_TEXT_BASE_PIXELS) continue
                     draw(entity, canvas, matrix)
                 }
                 is DxfMText -> {
-                    val pixSize = entity.height * scale
-                    if (pixSize < MIN_TEXT_BASE_PIXELS) return@forEach
-                    if (viewport != null) {
-                        val b = entity.worldBounds()
-                        if (b != null && !b.intersects(viewport)) return@forEach
-                    }
+                    if (entity.height * scale < MIN_TEXT_BASE_PIXELS) continue
                     draw(entity, canvas, matrix)
                 }
                 else -> { /* already drawn in first pass */ }

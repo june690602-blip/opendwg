@@ -18,12 +18,22 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-05-29) — Phase 8.8 진행 중 (Task 11 완료)
+## Status (2026-05-30) — Phase 10 렌더링 성능 최적화 완료
 
-**현재 HEAD: `38a9f58`** — 구 DXF 파이프라인 삭제 완료 (Task 11).
+**현재 HEAD: `0478a52`** (Phase 9.4 XCLIP). Phase 10 변경은 **working tree 미커밋**.
 
-**다음 phase 핸드오프:** `docs/superpowers/handoff/2026-05-30-phase10-render-performance.md`
-
+> **Phase 10 (2026-05-30) 렌더링 성능 최적화 완료 — 팬/줌 렉 제거.**
+> 근본 원인: `EntityRenderer.drawAll`이 매 프레임 188K 엔티티 전체를 2회 스캔 + `worldBounds()`
+> 매 프레임 재계산(polyline/hatch `minOf` 람다 → iterator/박싱 할당 → GC 폭증). 공간 인덱스 없음.
+> 수정: **`render/SpatialIndex.kt`** 신규 — 로드 시 1회 ① 엔티티별 bounds 캐시 + ② 균일 그리드
+> (긴 축 128분할) 구축. `drawAll`은 viewport와 겹치는 셀의 후보만 조회(187K→가시영역 수~수천),
+> 캐시 bounds로 컬링. 텍스트도 인덱싱(넉넉한 근사 bounds)해 viewport 컬링 추가.
+> **측정(`04_chamgo.dwg` 187,907 엔티티, 에뮬 gfxinfo): fit 팬 1600ms→97~150ms(~10–16×),
+> 중간 줌(9x) 18ms, 고배율(81x) 17ms — 작업 줌은 모두 ~60fps.** 단위테스트 SpatialIndex 6개 추가.
+> 시각 검증: 줌인 시 한글/치수/표제란 텍스트 정상(누락 없음). 비트맵 캐시(#3)는 fit 팬이라는
+> 드문 케이스만 남아 **불필요 판단**(회귀 위험·메모리 대비 효용 낮음).
+> 상세: `docs/superpowers/handoff/2026-05-30-phase10-render-performance.md` (완료 노트 추가됨).
+>
 > **Phase 9.4 (2026-05-30) XCLIP 완료 — 떡덩어리/겹침 해결, 사용자 만족.**
 > 근본 원인: XCLIP(SPATIAL_FILTER) 미지원 — crop/xref 블록이 클립 무시하고 블록 전체를 렌더해 겹침.
 > 수정: `dwg_serialize.c`가 INSERT의 SPATIAL_FILTER(xdic→ACAD_FILTER→SPATIAL)로 자식 엔티티를
@@ -42,7 +52,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
 - 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
 - 13MB DWG 파일 1초 내 파싱 (110K objects → 100K entities)
-- 단위 테스트 44개 통과 (SheetClusterer 6 + NativeDecoder 18 + EntityColor 3 + AciColor 10 + CoordTransform 6 + ExampleUnit 1)
+- 단위 테스트 63개 통과 (NativeDecoder 18 + ColorInvert 13 + AciColor 10 + SheetClusterer 6 +
+  CoordTransform 6 + SpatialIndex 6 + EntityColorDecoding 3 + ExampleUnit 1)
 - LINE/CIRCLE/ARC/POLYLINE/3DFACE/SOLID/ELLIPSE/SPLINE/HATCH/DIMENSION/LEADER/TEXT/MTEXT 디코딩
 - INSERT 블록 재귀 전개 (depth 5, affine transform)
 - **DIMENSION anonymous block 전개 (Phase 8.5)** — `clone_ins_pt` 변환으로 화살표/연장선/측정값

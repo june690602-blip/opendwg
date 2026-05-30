@@ -100,9 +100,9 @@ class DrawingView @JvmOverloads constructor(
         val bgColor   = if (nightMode) Color.parseColor("#1C1C1E") else Color.WHITE
         val lineColor = if (nightMode) Color.parseColor("#E0E0E0") else Color.BLACK
         canvas.drawColor(bgColor)
-        val d = drawing ?: return
+        if (drawing == null) return
         renderer.setColors(bgColor, lineColor)
         val viewport = CoordTransform.screenToWorldBounds(width, height, matrix)
-        renderer.drawAll(d.entities, canvas, matrix, viewport)
+        renderer.drawAll(canvas, matrix, viewport)
     }
 }
