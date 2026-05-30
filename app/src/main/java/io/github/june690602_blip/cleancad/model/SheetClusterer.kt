@@ -106,6 +106,39 @@ object SheetClusterer {
 
         return sheets
     }
+
+    /**
+     * displayExtents(렌더 컬링 경계)용 강건 bbox.
+     *
+     * 문제: [cluster]는 P5-P95 percentile로 시트 bbox를 클리핑하므로, 표지·도면목록표·
+     * 사업개요처럼 엔티티 수가 적고 메인 클러스터 위/옆에 떨어진 시트는 상위 5%로 밀려
+     * 검출 시트 bbox에서 빠진다. 그 합집합을 그대로 renderBounds로 쓰면 그 시트들이 컬링된다.
+     *
+     * 해결: 검출 시트 합집합(seed)을 1배 확장한 후보영역 안의 엔티티 centroid만의 bbox를
+     * 반환한다. 인접한 저밀도 시트는 포함되고, 먼 junk outlier(±수백만)는 제외된다.
+     */
+    fun inclusiveExtents(entities: List<DxfEntity>, sheets: List<Sheet>): BoundingBox? {
+        if (sheets.isEmpty()) return null
+        val seedMinX = sheets.minOf { it.bbox.minX }; val seedMaxX = sheets.maxOf { it.bbox.maxX }
+        val seedMinY = sheets.minOf { it.bbox.minY }; val seedMaxY = sheets.maxOf { it.bbox.maxY }
+        val w = (seedMaxX - seedMinX).coerceAtLeast(1.0)
+        val h = (seedMaxY - seedMinY).coerceAtLeast(1.0)
+        val rx0 = seedMinX - w; val rx1 = seedMaxX + w
+        val ry0 = seedMinY - h; val ry1 = seedMaxY + h
+
+        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
+        var found = false
+        for (e in entities) {
+            val p = e.centroid() ?: continue
+            if (p.x < rx0 || p.x > rx1 || p.y < ry0 || p.y > ry1) continue
+            found = true
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y
+        }
+        return if (found) BoundingBox(minX, minY, maxX, maxY)
+               else BoundingBox(seedMinX, seedMinY, seedMaxX, seedMaxY)
+    }
 }
 
 private fun DxfEntity.centroid(): Vec2? = when (this) {
