@@ -383,11 +383,14 @@ class EntityRenderer {
         val pt = CoordTransform.worldToScreen(e.insertionPoint, matrix)
         textPaint.textSize = (e.height * CoordTransform.currentScale(matrix)).toFloat()
             .coerceAtLeast(8f)
+        textPaint.textAlign = hAlignOf(e.hAlign)
+        val dy = vOffsetOf(e.vAlign)
         canvas.save()
         canvas.translate(pt.x, pt.y)
         canvas.rotate(-e.rotationDeg.toFloat())
-        canvas.drawText(e.text, 0f, 0f, textPaint)
+        canvas.drawText(e.text, 0f, dy, textPaint)
         canvas.restore()
+        textPaint.textAlign = Paint.Align.LEFT
     }
 
     private fun drawMText(e: DxfMText, canvas: Canvas, matrix: Matrix) {
@@ -399,11 +402,33 @@ class EntityRenderer {
             .replace(Regex("\\\\[^A-Za-z]"), "")
             .replace(Regex("[{}]"), "")
             .replace("\\P", "\n")
+        textPaint.textAlign = hAlignOf(e.hAlign)
+        val dy = vOffsetOf(e.vAlign)
         canvas.save()
         canvas.translate(pt.x, pt.y)
         canvas.rotate(-e.rotationDeg.toFloat())
-        canvas.drawText(stripped, 0f, 0f, textPaint)
+        canvas.drawText(stripped, 0f, dy, textPaint)
         canvas.restore()
+        textPaint.textAlign = Paint.Align.LEFT
+    }
+
+    /** hAlign(0 left,1 center,2 right) → Paint.Align. */
+    private fun hAlignOf(h: Int): Paint.Align = when (h) {
+        1 -> Paint.Align.CENTER
+        2 -> Paint.Align.RIGHT
+        else -> Paint.Align.LEFT
+    }
+
+    /** vAlign(0 baseline,1 bottom,2 middle,3 top) → drawText baseline 오프셋(dy). */
+    private fun vOffsetOf(v: Int): Float {
+        if (v == 0) return 0f
+        val fm = textPaint.fontMetrics
+        return when (v) {
+            1 -> -fm.descent                    // bottom
+            2 -> -(fm.ascent + fm.descent) / 2f // middle
+            3 -> -fm.ascent                     // top
+            else -> 0f
+        }
     }
 
     private fun drawDimension(e: DxfDimension, canvas: Canvas, matrix: Matrix) {

@@ -79,7 +79,11 @@ data class DxfText(
     val insertionPoint: Vec2,
     val height: Double,
     val text: String,
-    val rotationDeg: Double = 0.0
+    val rotationDeg: Double = 0.0,
+    /** 0=left, 1=center, 2=right */
+    val hAlign: Int = 0,
+    /** 0=baseline, 1=bottom, 2=middle, 3=top */
+    val vAlign: Int = 0
 ) : DxfEntity()
 
 data class DxfMText(
@@ -87,7 +91,11 @@ data class DxfMText(
     val insertionPoint: Vec2,
     val height: Double,
     val text: String,
-    val rotationDeg: Double = 0.0
+    val rotationDeg: Double = 0.0,
+    /** 0=left, 1=center, 2=right */
+    val hAlign: Int = 0,
+    /** 0=baseline, 1=bottom, 2=middle, 3=top */
+    val vAlign: Int = 0
 ) : DxfEntity()
 
 data class DxfInsert(

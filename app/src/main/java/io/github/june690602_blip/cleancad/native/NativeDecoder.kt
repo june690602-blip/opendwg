@@ -190,17 +190,19 @@ object NativeDecoder {
     private fun decodeText(buf: ByteBuffer, layer: String): DxfText {
         val ix = buf.double; val iy = buf.double
         val height = buf.double; val rot = buf.double
+        val hAlign = buf.int; val vAlign = buf.int
         val len = buf.short.toInt() and 0xFFFF
         val bytes = ByteArray(len); buf.get(bytes)
-        return DxfText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot)
+        return DxfText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot, hAlign, vAlign)
     }
 
     private fun decodeMText(buf: ByteBuffer, layer: String): DxfMText {
         val ix = buf.double; val iy = buf.double
         val height = buf.double; val rot = buf.double
+        val hAlign = buf.int; val vAlign = buf.int
         val len = buf.short.toInt() and 0xFFFF
         val bytes = ByteArray(len); buf.get(bytes)
-        return DxfMText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot)
+        return DxfMText(layer, Vec2(ix, iy), height, String(bytes, Charsets.UTF_8), rot, hAlign, vAlign)
     }
 
     private fun decode3dFace(buf: ByteBuffer, layer: String): Dxf3DFace {

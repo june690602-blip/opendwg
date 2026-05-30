@@ -218,14 +218,16 @@ class NativeDecoderTest {
 
     private fun textEntity(
         typeId: Int, layerIdx: Int,
-        ix: Double, iy: Double, height: Double, rotDeg: Double, text: String
+        ix: Double, iy: Double, height: Double, rotDeg: Double, text: String,
+        hAlign: Int = 0, vAlign: Int = 0
     ): ByteArray {
         val textBytes = text.toByteArray(Charsets.UTF_8)
-        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 4 + 2 + textBytes.size)
+        val b = ByteBuffer.allocate(1 + 4 + 2 + 4 + 8 * 4 + 4 + 4 + 2 + textBytes.size)
             .order(ByteOrder.LITTLE_ENDIAN)
         b.put(typeId.toByte())
         b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
         b.putDouble(ix); b.putDouble(iy); b.putDouble(height); b.putDouble(rotDeg)
+        b.putInt(hAlign); b.putInt(vAlign)
         b.putShort(textBytes.size.toShort()); b.put(textBytes)
         return b.array()
     }
@@ -257,6 +259,34 @@ class NativeDecoderTest {
         assertTrue(m.text.contains("벽체"))
         assertTrue(m.text.contains("두께 200"))
         assertEquals(45.0, m.rotationDeg, 1e-9)
+    }
+
+    @Test
+    fun decode_text_alignmentFields() {
+        // 디멘션 텍스트처럼 가운데(center)+중앙(middle) 정렬 → hAlign=1, vAlign=2
+        val bytes = buildBuffer(
+            entities = listOf(textEntity(
+                NativeProtocol.TYPE_TEXT, -1, 10.0, 20.0, 2.5, 0.0, "1,800",
+                hAlign = 1, vAlign = 2
+            ))
+        )
+        val t = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfText
+        assertEquals(1, t.hAlign)
+        assertEquals(2, t.vAlign)
+    }
+
+    @Test
+    fun decode_text_defaultAlignmentIsLeftBaseline() {
+        val bytes = buildBuffer(
+            entities = listOf(textEntity(
+                NativeProtocol.TYPE_TEXT, -1, 0.0, 0.0, 2.5, 0.0, "abc"
+            ))
+        )
+        val t = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfText
+        assertEquals(0, t.hAlign)
+        assertEquals(0, t.vAlign)
     }
 
     private fun fourCornerEntity(

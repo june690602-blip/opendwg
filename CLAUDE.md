@@ -62,6 +62,13 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
   (`incomingUri()`, `IntentCompat.getParcelableExtra`) 추가 → 시스템 공유시트(가시성 무관)로
   "공유 → CleanCAD" 경로 확보. 검증: SEND 필터 query-activities 해석 + EXTRA_STREAM URI 로드 SUCCESS.
   시스템 경로(내 파일→열기)는 S25+ 에서 정상 동작 확인.
+- **TEXT/MTEXT 정렬 지원 — 디멘션 숫자 우측 치우침 수정 (Phase 11.3)** — 기존엔 모든 텍스트를
+  insertion point 기준 좌측정렬로 그려, 가운데정렬(attachment=5)인 디멘션 측정값이 우측으로 치우쳤다.
+  native 가 TEXT(`horiz/vert_alignment`+정렬 시 `alignment_pt`)·MTEXT(`attachment` 1-9)를 halign/valign
+  두 int 로 내보내고(프로토콜에 8바이트 추가 — TEXT/MTEXT/ATTRIB/MLEADER 4개 emitter 전부 동기화),
+  디코더·모델(DxfText/DxfMText `hAlign`/`vAlign`)·렌더러(`Paint.Align` + fontMetrics 수직 오프셋)가
+  반영. ATTRIB/MLEADER 는 0,0(좌측+베이스라인)로 기존 동작 유지. 검증: 단위테스트 75개(정렬 2개 추가),
+  파싱 무결성(엔티티 192,882 동일=프로토콜 동기 확인), 실폰(S21+) 디멘션 숫자 가운데 정렬 사용자 확인.
 - **Play Store 출시 준비 (Phase 11.1)** — 릴리즈 R8 minify+resource shrink 켬(`proguard-rules.pro`에
   JNI/NativeDwg keep), 전용 블루프린트 아이콘(적응형 벡터 + 5밀도 webp + `docs/store/icon-512.png`),
   `docs/privacy.html`(수집0), `docs/store/listing.md`(KR/EN), 스크린샷 3장. 검증: R8 릴리즈 실기

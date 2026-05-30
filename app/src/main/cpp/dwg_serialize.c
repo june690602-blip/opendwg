@@ -323,7 +323,10 @@ static void write_text(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                        double tx, double ty, double sx, double sy, double rot) {
     Dwg_Entity_TEXT *e = obj->tio.entity->tio.TEXT;
     write_entity_header(w, dwg, obj, DWGB_TYPE_TEXT);
-    double px = e->ins_pt.x, py = e->ins_pt.y;
+    /* DXF 72/73 정렬이 있으면 기준점은 alignment_pt(DXF 11), 아니면 ins_pt(DXF 10) */
+    int h72 = (int)e->horiz_alignment, v73 = (int)e->vert_alignment;
+    double px = (h72 != 0 || v73 != 0) ? e->alignment_pt.x : e->ins_pt.x;
+    double py = (h72 != 0 || v73 != 0) ? e->alignment_pt.y : e->ins_pt.y;
     if (tx != 0.0 || ty != 0.0 || sx != 1.0 || sy != 1.0 || rot != 0.0) {
         affine_point(&px, &py, sx, sy, rot, tx, ty);
     }
@@ -333,6 +336,10 @@ static void write_text(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     double rot_deg = e->rotation * 180.0 / 3.14159265358979323846;
     double final_rot = rot_deg + (rot * 180.0 / 3.14159265358979323846);
     w_f64(w, final_rot);
+    /* 정렬: halign 0=left 1=center 2=right ; valign 0=baseline 1=bottom 2=middle 3=top */
+    int t_halign = (h72 == 1 || h72 == 4) ? 1 : (h72 == 2) ? 2 : 0;
+    int t_valign = (v73 >= 1 && v73 <= 3) ? v73 : 0;
+    w_i32(w, t_halign); w_i32(w, t_valign);
     char *utf8 = tv_to_utf8(dwg, e->text_value);
     w_string_utf8(w, utf8 ? utf8 : "");
     free(utf8);
@@ -354,6 +361,13 @@ static void write_mtext(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     double rot_deg = rot_rad * 180.0 / 3.14159265358979323846;
     double final_rot = rot_deg + (rot * 180.0 / 3.14159265358979323846);
     w_f64(w, final_rot);
+    /* attachment(DXF71, 1-9) → halign/valign. 디멘션 텍스트는 보통 5(중앙-가운데). */
+    int att = (int)e->attachment; if (att < 1 || att > 9) att = 1;
+    int m_col = (att - 1) % 3;                 /* 0 left 1 center 2 right */
+    int m_row = (att - 1) / 3;                 /* 0 top 1 middle 2 bottom */
+    int m_halign = m_col;
+    int m_valign = (m_row == 0) ? 3 : (m_row == 1) ? 2 : 1;  /* top→3 middle→2 bottom→1 */
+    w_i32(w, m_halign); w_i32(w, m_valign);
     char *utf8 = tv_to_utf8(dwg, e->text);
     w_string_utf8(w, utf8 ? utf8 : "");
     free(utf8);
@@ -614,6 +628,7 @@ static void write_multileader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *
             w_f64(w, px); w_f64(w, py);
             w_f64(w, h * fabs(scale_avg));
             w_f64(w, rdeg);
+            w_i32(w, 0); w_i32(w, 0);   /* 정렬: 좌측+베이스라인 (MLEADER 현 동작 유지) */
             w_string_utf8(w, utf8);
             (*count_ptr)++;
         }
@@ -998,6 +1013,7 @@ static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                 w_f64(w, px); w_f64(w, py);
                 w_f64(w, at->height * fabs(scale_avg));
                 w_f64(w, rdeg);
+                w_i32(w, 0); w_i32(w, 0);   /* 정렬: 좌측+베이스라인 (ATTRIB 현 동작 유지) */
                 w_string_utf8(w, u);
                 (*count_ptr)++;
             }
