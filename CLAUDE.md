@@ -55,6 +55,11 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
   아니면 안내 후 에러화면. 검증: `cmd package query-activities` 로 octet-stream/image/vnd.dwg VIEW
   모두 ViewerActivity 해석 확인, octet-stream+실파일 → 렌더 성공, isLikelyDwg 단위테스트 9개.
   ⚠️ 카톡이 octet-stream 대신 */* 로 줄 가능성은 실폰 테스트로만 확정(미검증, 필요 시 필터 추가 확장).
+- **Play Store 출시 준비 (Phase 11.1)** — 릴리즈 R8 minify+resource shrink 켬(`proguard-rules.pro`에
+  JNI/NativeDwg keep), 전용 블루프린트 아이콘(적응형 벡터 + 5밀도 webp + `docs/store/icon-512.png`),
+  `docs/privacy.html`(수집0), `docs/store/listing.md`(KR/EN), 스크린샷 3장. 검증: R8 릴리즈 실기
+  렌더 정상·단위테스트 73개·`.so` 16KB LOAD 정렬·`bundleRelease` AAB(3 ABI+심볼) 생성. 사용자 액션
+  (키스토어·AAB 빌드·콘솔 업로드)은 `docs/store/RELEASE-GUIDE.md`. ⚠️ 키스토어는 본인 생성(gitignore됨).
 - LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
 - 한글/일본어/중국어 인코딩 정상 (`bit_TV_to_utf8` 사용)
 - 엔티티별 색상 (BYLAYER/BYBLOCK/ACI/RGB)
