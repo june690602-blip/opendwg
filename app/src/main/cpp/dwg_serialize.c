@@ -527,6 +527,32 @@ static void write_leader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
     }
 }
 
+/* ---- 9a-4a: IMAGE / WIPEOUT / OLE2FRAME 프레임 ----
+ * 래스터 이미지·OLE 객체 자체는 렌더 못 하므로 경계 프레임만 닫힌 LWPOLYLINE 으로
+ * 내보낸다 (ZWCAD 도 미해상 이미지를 프레임+경로로 표시). 좌표는 affine 변환 적용. */
+static void emit_quad_frame(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                            const double *xs, const double *ys,
+                            double tx, double ty, double sx, double sy, double rot) {
+    write_entity_header(w, dwg, obj, DWGB_TYPE_LWPOLYLINE);
+    w_u8(w, 1);          /* closed */
+    w_i32(w, 4);
+    for (int k = 0; k < 4; ++k) {
+        double px = xs[k], py = ys[k];
+        affine_point(&px, &py, sx, sy, rot, tx, ty);
+        w_f64(w, px); w_f64(w, py);
+    }
+}
+
+/* IMAGE/WIPEOUT 공통: pt0 + uvec*W + vvec*H 로 4코너 프레임. (둘은 필드 레이아웃 동일) */
+static void write_raster_frame(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                               double p0x, double p0y, double uvx, double uvy,
+                               double vvx, double vvy, double iw, double ih,
+                               double tx, double ty, double sx, double sy, double rot) {
+    double xs[4] = { p0x, p0x + uvx*iw, p0x + uvx*iw + vvx*ih, p0x + vvx*ih };
+    double ys[4] = { p0y, p0y + uvy*iw, p0y + uvy*iw + vvy*ih, p0y + vvy*ih };
+    emit_quad_frame(w, dwg, obj, xs, ys, tx, ty, sx, sy, rot);
+}
+
 /* ---- 9a-4b: MULTILEADER (MLEADER) ----
  * 현대식 다중 지시선. 기하는 ctx(AnnotContext)에 들어있다.
  * 디코더 변경 없이: 리더 선 → LWPOLYLINE, dogleg(랜딩선) → LINE, 텍스트 content → MTEXT
@@ -761,6 +787,9 @@ static int entity_local_repr(const Dwg_Object *obj, double *px, double *py) {
     if (!obj || !obj->tio.entity) return 0;
     switch (obj->fixedtype) {
         case DWG_TYPE_POINT:  { Dwg_Entity_POINT  *e=obj->tio.entity->tio.POINT;  *px=e->x;        *py=e->y;        return 1; }
+        case DWG_TYPE_IMAGE:  { Dwg_Entity_IMAGE  *e=obj->tio.entity->tio.IMAGE;  *px=e->pt0.x;    *py=e->pt0.y;    return 1; }
+        case DWG_TYPE_WIPEOUT:{ Dwg_Entity_WIPEOUT*e=obj->tio.entity->tio.WIPEOUT;*px=e->pt0.x;    *py=e->pt0.y;    return 1; }
+        case DWG_TYPE_OLE2FRAME:{Dwg_Entity_OLE2FRAME*e=obj->tio.entity->tio.OLE2FRAME;*px=e->pt1.x;*py=e->pt1.y;   return 1; }
         case DWG_TYPE_LINE:   { Dwg_Entity_LINE   *e=obj->tio.entity->tio.LINE;   *px=e->start.x;  *py=e->start.y;  return 1; }
         case DWG_TYPE_CIRCLE: { Dwg_Entity_CIRCLE *e=obj->tio.entity->tio.CIRCLE; *px=e->center.x; *py=e->center.y; return 1; }
         case DWG_TYPE_ARC:    { Dwg_Entity_ARC    *e=obj->tio.entity->tio.ARC;    *px=e->center.x; *py=e->center.y; return 1; }
@@ -950,9 +979,78 @@ static void write_insert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
         }
     }
 
+    /* INSERT 의 ATTRIB(속성값 텍스트)를 TEXT 로 emit. ATTRIB 은 INSERT 와 같은 좌표공간
+     * (블록 로컬 아님) → 부모 변환(tx,ty,sx,sy,rot) 적용. 표제란/라벨 텍스트 보강. */
+    if (e->attribs) {
+        double scale_avg = (sx + sy) * 0.5;
+        for (BITCODE_BL i = 0; i < e->num_owned && w->ok; ++i) {
+            if (*count_ptr >= DWGB_MAX_ENTITIES) break;
+            if (!e->attribs[i] || !e->attribs[i]->obj) continue;
+            const Dwg_Object *ao = e->attribs[i]->obj;
+            if (ao->fixedtype != DWG_TYPE_ATTRIB || !ao->tio.entity) continue;
+            Dwg_Entity_ATTRIB *at = ao->tio.entity->tio.ATTRIB;
+            if (!at || (at->flags & 1)) continue;           /* invisible */
+            char *u = tv_to_utf8(dwg, at->text_value);
+            if (u && u[0]) {
+                double px = at->ins_pt.x, py = at->ins_pt.y;
+                affine_point(&px, &py, sx, sy, rot, tx, ty);
+                double rdeg = (at->rotation + rot) * 180.0 / 3.14159265358979323846;
+                write_entity_header(w, dwg, ao, DWGB_TYPE_TEXT);
+                w_f64(w, px); w_f64(w, py);
+                w_f64(w, at->height * fabs(scale_avg));
+                w_f64(w, rdeg);
+                w_string_utf8(w, u);
+                (*count_ptr)++;
+            }
+            free(u);
+        }
+    }
+
     /* g_clip 복원 */
     g_clip_on = saved_on;
     g_clx0 = svx0; g_cly0 = svy0; g_clx1 = svx1; g_cly1 = svy1;
+}
+
+/* ---- 9b-2: MINSERT (블록 배열) ----
+ * INSERT 블록을 num_cols×num_rows 격자로 반복 전개. 셀 (r,c) 삽입점 =
+ * ins_pt + Rot(rotation)·(c·col_spacing, r·row_spacing). XCLIP 은 MINSERT 에 거의 없어 생략. */
+static void write_minsert(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
+                          double tx, double ty, double sx, double sy, double rot,
+                          int depth, int *count_ptr) {
+    if (depth >= DWGB_MAX_INSERT_DEPTH) return;
+    Dwg_Entity_MINSERT *e = obj->tio.entity->tio.MINSERT;
+    if (!e->block_header || !e->block_header->obj) return;
+    Dwg_Object_BLOCK_HEADER *bh = e->block_header->obj->tio.object->tio.BLOCK_HEADER;
+    if (!bh) return;
+    int ncols = e->num_cols < 1 ? 1 : (int)e->num_cols;
+    int nrows = e->num_rows < 1 ? 1 : (int)e->num_rows;
+    if ((long)ncols * nrows > 10000) return;   /* 폭주 방지 */
+
+    double new_sx = sx * e->scale.x, new_sy = sy * e->scale.y;
+    double new_rot = rot + e->rotation;
+    double bpx = bh->base_pt.x, bpy = bh->base_pt.y;
+    affine_point(&bpx, &bpy, new_sx, new_sy, new_rot, 0.0, 0.0);
+    double crot = cos(e->rotation), srot = sin(e->rotation);
+
+    for (int r = 0; r < nrows; ++r) {
+        for (int c = 0; c < ncols; ++c) {
+            if (*count_ptr >= DWGB_MAX_ENTITIES) return;
+            double ox = c * e->col_spacing, oy = r * e->row_spacing;
+            double lx = e->ins_pt.x + ox*crot - oy*srot;
+            double ly = e->ins_pt.y + ox*srot + oy*crot;
+            affine_point(&lx, &ly, sx, sy, rot, tx, ty);
+            double child_tx = lx - bpx, child_ty = ly - bpy;
+            if (bh->entities && bh->num_owned > 0) {
+                for (BITCODE_BL i = 0; i < bh->num_owned; ++i) {
+                    if (*count_ptr >= DWGB_MAX_ENTITIES) return;
+                    if (!bh->entities[i] || !bh->entities[i]->obj) continue;
+                    write_entity(w, dwg, bh->entities[i]->obj,
+                                 child_tx, child_ty, new_sx, new_sy, new_rot,
+                                 depth + 1, count_ptr);
+                }
+            }
+        }
+    }
 }
 
 static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
@@ -1051,6 +1149,26 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             write_insert(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
         case DWG_TYPE_MULTILEADER:
             write_multileader(w, dwg, obj, tx, ty, sx, sy, rot, count_ptr); break;
+        case DWG_TYPE_MINSERT:
+            write_minsert(w, dwg, obj, tx, ty, sx, sy, rot, depth, count_ptr); break;
+        case DWG_TYPE_IMAGE: {
+            Dwg_Entity_IMAGE *e = obj->tio.entity->tio.IMAGE;
+            write_raster_frame(w, dwg, obj, e->pt0.x, e->pt0.y, e->uvec.x, e->uvec.y,
+                               e->vvec.x, e->vvec.y, e->image_size.x, e->image_size.y,
+                               tx, ty, sx, sy, rot); (*count_ptr)++; break;
+        }
+        case DWG_TYPE_WIPEOUT: {
+            Dwg_Entity_WIPEOUT *e = obj->tio.entity->tio.WIPEOUT;
+            write_raster_frame(w, dwg, obj, e->pt0.x, e->pt0.y, e->uvec.x, e->uvec.y,
+                               e->vvec.x, e->vvec.y, e->image_size.x, e->image_size.y,
+                               tx, ty, sx, sy, rot); (*count_ptr)++; break;
+        }
+        case DWG_TYPE_OLE2FRAME: {
+            Dwg_Entity_OLE2FRAME *e = obj->tio.entity->tio.OLE2FRAME;
+            double xs[4] = { e->pt1.x, e->pt2.x, e->pt2.x, e->pt1.x };
+            double ys[4] = { e->pt1.y, e->pt1.y, e->pt2.y, e->pt2.y };
+            emit_quad_frame(w, dwg, obj, xs, ys, tx, ty, sx, sy, rot); (*count_ptr)++; break;
+        }
         default: break;
     }
 }

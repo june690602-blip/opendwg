@@ -60,7 +60,11 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - **POINT 지원 (Phase 10.2)** — 새 DWGB_TYPE_POINT(17). `DxfPoint` 모델, 줌 무관 1.5px 고정 점으로
   렌더(픽셀컬 예외). 클러스터링 제외(centroid=null)·extents 미반영(worldBounds=null), 공간인덱스엔
   포함. `04_참고도면.dwg` 2,763점 렌더(나머지는 XCLIP 클립 밖이라 컬링).
-  ⚠️ 아직 미지원(silently dropped): IMAGE/WIPEOUT/MINSERT/ATTDEF·ATTRIB/OLE2FRAME — ZWCAD 대비 누락.
+- **IMAGE/WIPEOUT/OLE2FRAME/MINSERT/ATTRIB 지원 (Phase 10.3)** — 모두 native에서 기존 레코드로 분해
+  (디코더/모델/렌더 무변경): IMAGE/WIPEOUT=pt0+uvec·vvec 4코너 프레임→LWPOLYLINE, OLE2FRAME=pt1/pt2
+  사각형, MINSERT=블록을 num_cols×num_rows 격자 전개, ATTRIB=INSERT 속성값→TEXT(부모 변환 적용).
+  검증: "입면도"·"1:60"·"DRAWING NAME" 표제란 라벨(ATTRIB), 사진 프레임(IMAGE) 렌더 확인.
+  엔티티 191,148→192,897(+1,749). ⚠️ ATTDEF(블록 내 속성 정의 템플릿)는 의도적 미렌더(ATTRIB 값으로 대체).
 - INSERT 블록 재귀 전개 (depth 5, affine transform)
 - **DIMENSION anonymous block 전개 (Phase 8.5)** — `clone_ins_pt` 변환으로 화살표/연장선/측정값
   텍스트가 제 위치에 렌더. 사용자 확인됨 ("수치들은 다 제자리로 가있네").
