@@ -1,5 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
+}
+
+// 서명 비밀번호는 git 에 안 올라가는 keystore.properties(repo 루트)에서 읽는다.
+// 없으면 환경변수 → 기본값 순. (keystore.properties 는 .gitignore 됨)
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -14,7 +23,7 @@ android {
         applicationId = "io.github.june690602_blip.cleancad"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -33,10 +42,16 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "../cleancad-release.jks")
-            storePassword = System.getenv("KEYSTORE_PASS") ?: ""
-            keyAlias = System.getenv("KEY_ALIAS") ?: "cleancad"
-            keyPassword = System.getenv("KEY_PASS") ?: ""
+            storeFile = file(
+                keystoreProps.getProperty("storeFile")
+                    ?: System.getenv("KEYSTORE_PATH") ?: "../cleancad-release.jks"
+            )
+            storePassword = keystoreProps.getProperty("storePassword")
+                ?: System.getenv("KEYSTORE_PASS") ?: ""
+            keyAlias = keystoreProps.getProperty("keyAlias")
+                ?: System.getenv("KEY_ALIAS") ?: "cleancad"
+            keyPassword = keystoreProps.getProperty("keyPassword")
+                ?: System.getenv("KEY_PASS") ?: ""
         }
     }
 
