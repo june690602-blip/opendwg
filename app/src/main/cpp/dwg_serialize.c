@@ -8,6 +8,11 @@
 
 #define DWGB_MAX_INSERT_DEPTH 5
 #define DWGB_MAX_ENTITIES 500000
+#define DWGB_PI 3.14159265358979323846
+#define HATCH_ARC_MIN_SEGS 8
+#define HATCH_ARC_MAX_SEGS 64
+#define HATCH_MAX_FILL_SEGMENTS 4000     /* hatch당 채움 세그먼트 상한 → 초과 시 솔리드 폴백 */
+#define HATCH_MAX_FAMILY_LINES 20000     /* defline당 평행선 상한 → 초과 시 솔리드 폴백 */
 
 /* XCLIP: 현재 활성 world 클립 사각형(축정렬). write_insert 진입 시 set, 나갈 때 restore.
  * 기하 클리핑(선/폴리라인 잘라내기)과 소형 엔티티 컬링에 사용. */
@@ -641,6 +646,108 @@ static void write_multileader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *
             (*count_ptr)++;
         }
         free(utf8);
+    }
+}
+
+/* ---- HATCH 패턴 채움용 동적 double 버퍼 + 헬퍼 ---- */
+
+typedef struct { double *v; int n; int cap; } DBuf;
+
+static void dbuf_init(DBuf *b) { b->v = NULL; b->n = 0; b->cap = 0; }
+static void dbuf_free(DBuf *b) { free(b->v); b->v = NULL; b->n = 0; b->cap = 0; }
+static int  dbuf_push(DBuf *b, double x) {
+    if (b->n >= b->cap) {
+        int nc = b->cap ? b->cap * 2 : 64;
+        double *nv = (double *)realloc(b->v, (size_t)nc * sizeof(double));
+        if (!nv) return 0;
+        b->v = nv; b->cap = nc;
+    }
+    b->v[b->n++] = x; return 1;
+}
+static void dbuf_push_xform(DBuf *b, double x, double y,
+                            double sx, double sy, double rot, double tx, double ty) {
+    affine_point(&x, &y, sx, sy, rot, tx, ty);
+    dbuf_push(b, x); dbuf_push(b, y);
+}
+
+/* 원호를 짧은 선분으로 분할해 점들을 push (시작점 제외, 끝점 포함). 로컬좌표로 샘플 후 변환. */
+static void emit_arc(DBuf *b, double cx, double cy, double r,
+                     double a0, double a1, int ccw,
+                     double sx, double sy, double rot, double tx, double ty) {
+    double sweep = a1 - a0;
+    if (ccw)  { while (sweep < 0) sweep += 2.0 * DWGB_PI; }
+    else      { while (sweep > 0) sweep -= 2.0 * DWGB_PI; }
+    double aSweep = fabs(sweep);
+    int segs = (int)ceil(aSweep / (DWGB_PI / 16.0));   /* ~11.25° 간격 */
+    if (segs < HATCH_ARC_MIN_SEGS) segs = HATCH_ARC_MIN_SEGS;
+    if (segs > HATCH_ARC_MAX_SEGS) segs = HATCH_ARC_MAX_SEGS;
+    for (int i = 1; i <= segs; ++i) {
+        double a = a0 + sweep * ((double)i / (double)segs);
+        dbuf_push_xform(b, cx + r * cos(a), cy + r * sin(a), sx, sy, rot, tx, ty);
+    }
+}
+
+/* polyline bulge 구간을 원호로 분할해 push (시작점 제외, 끝점 포함). */
+static void emit_bulge(DBuf *b, double x0, double y0, double x1, double y1, double bulge,
+                       double sx, double sy, double rot, double tx, double ty) {
+    if (fabs(bulge) < 1e-9) { dbuf_push_xform(b, x1, y1, sx, sy, rot, tx, ty); return; }
+    double theta = 4.0 * atan(bulge);
+    double half = theta / 2.0, s = sin(half);
+    if (fabs(s) < 1e-9) { dbuf_push_xform(b, x1, y1, sx, sy, rot, tx, ty); return; }
+    double cot = cos(half) / s;
+    double cx = (x0 + x1) / 2.0 - (y1 - y0) / 2.0 * cot;
+    double cy = (y0 + y1) / 2.0 + (x1 - x0) / 2.0 * cot;
+    double r  = sqrt((x0 - cx) * (x0 - cx) + (y0 - cy) * (y0 - cy));
+    double a0 = atan2(y0 - cy, x0 - cx);
+    double a1 = atan2(y1 - cy, x1 - cx);
+    emit_arc(b, cx, cy, r, a0, a1, (bulge > 0) ? 1 : 0, sx, sy, rot, tx, ty);
+}
+
+/* 경계 path 하나를 변환된 월드 점열(out)로 빌드. 타원호/스플라인(curve_type 3,4)을
+ * 만나면 코드(chord)로 근사하고 *unsupported=1 (호출자가 patternFallback 처리). */
+static void build_one_loop(DBuf *out, Dwg_HATCH_Path *path, int *unsupported,
+                           double sx, double sy, double rot, double tx, double ty) {
+    if (path->flag & 2) {                       /* polyline path */
+        BITCODE_BL nv = path->num_segs_or_paths;
+        if (nv == 0 || !path->polyline_paths) return;
+        dbuf_push_xform(out, path->polyline_paths[0].point.x,
+                             path->polyline_paths[0].point.y, sx, sy, rot, tx, ty);
+        BITCODE_BL lim = path->closed ? nv : (nv > 0 ? nv - 1 : 0);
+        for (BITCODE_BL i = 0; i < lim; ++i) {
+            BITCODE_BL j = (i + 1) % nv;
+            double ax = path->polyline_paths[i].point.x, ay = path->polyline_paths[i].point.y;
+            double bx = path->polyline_paths[j].point.x, by = path->polyline_paths[j].point.y;
+            double bl = path->bulges_present ? path->polyline_paths[i].bulge : 0.0;
+            if (fabs(bl) > 1e-9) emit_bulge(out, ax, ay, bx, by, bl, sx, sy, rot, tx, ty);
+            else                 dbuf_push_xform(out, bx, by, sx, sy, rot, tx, ty);
+        }
+    } else {                                     /* segment path */
+        if (!path->segs) return;
+        for (BITCODE_BL s = 0; s < path->num_segs_or_paths; ++s) {
+            Dwg_HATCH_PathSeg *sg = &path->segs[s];
+            if (sg->curve_type == 1) {           /* LINE */
+                if (s == 0)
+                    dbuf_push_xform(out, sg->first_endpoint.x, sg->first_endpoint.y,
+                                    sx, sy, rot, tx, ty);
+                dbuf_push_xform(out, sg->second_endpoint.x, sg->second_endpoint.y,
+                                sx, sy, rot, tx, ty);
+            } else if (sg->curve_type == 2) {    /* CIRCULAR ARC (각도 단위=라디안 가정) */
+                if (s == 0)
+                    dbuf_push_xform(out, sg->center.x + sg->radius * cos(sg->start_angle),
+                                         sg->center.y + sg->radius * sin(sg->start_angle),
+                                    sx, sy, rot, tx, ty);
+                emit_arc(out, sg->center.x, sg->center.y, sg->radius,
+                         sg->start_angle, sg->end_angle, sg->is_ccw ? 1 : 0,
+                         sx, sy, rot, tx, ty);
+            } else {                              /* ELLIPTICAL ARC / SPLINE → chord 근사 */
+                *unsupported = 1;
+                if (s == 0)
+                    dbuf_push_xform(out, sg->first_endpoint.x, sg->first_endpoint.y,
+                                    sx, sy, rot, tx, ty);
+                dbuf_push_xform(out, sg->second_endpoint.x, sg->second_endpoint.y,
+                                sx, sy, rot, tx, ty);
+            }
+        }
     }
 }
 

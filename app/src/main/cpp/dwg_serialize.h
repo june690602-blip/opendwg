@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define DWGB_MAGIC            0x42475744u
-#define DWGB_PROTOCOL_VERSION 1
+#define DWGB_PROTOCOL_VERSION 2
 
 #define DWGB_TYPE_LINE        1
 #define DWGB_TYPE_CIRCLE      2
