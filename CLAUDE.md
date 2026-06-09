@@ -21,7 +21,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ## Status (2026-06-09) — Phase 8.6 HATCH 패턴 렌더링 완료
 
 **Phase 9.4/10/11 은 main 에 커밋됨 (HEAD `89f7698`).** Phase 8.6(HATCH 패턴)은 브랜치
-`feat/hatch-pattern-rendering` 에 4 커밋(`7ab8f27`→`869b708`), 아직 **미머지**.
+`feat/hatch-pattern-rendering`(**PR #4**) 에 작업, 아직 **미머지**(HEAD `ca4e466`).
+사용자 실파일(`01.건축도면-1.dwg`, S21+) 검증 완료 — 사용자 "잘 해결됐네".
 
 > **Phase 8.6 (2026-06-09) HATCH 패턴 렌더링 완료 — 실제 패턴 라인 재현.**
 > 근본 원인: 비솔리드 HATCH가 경계선만 렌더(패턴 정의선 무시) → 다른 캐드앱 대비 시각 차이 큼.
@@ -33,6 +34,16 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 > 로드 성공 192,882 엔티티(hatch 160), 수치 캘리브레이션 — ANSI31(솔리드)·AR-RROOF(점선) 정상
 > 생성, 폴백 0, def-line=모델공간 해상형태 직접 사용 확인. 단위테스트 77개. 상세:
 > `docs/superpowers/handoff/2026-06-09-phase8.6-hatch-pattern.md`.
+>
+> **Phase 8.6 후속 버그수정 (PR 검증 중, 사용자 파일 `01.건축도면-1.dwg` 실측) — 곡선 경계 2건:**
+> ① **CW(`is_ccw=0`) 경계 CIRCULAR_ARC 각도가 Y-mirror 저장** → raw 각도로 emit_arc 하면 reflex
+> sweep(~2π)=반지름 도면급 **거대 원** → SOLID 해치가 화면 덮는 '쪼개진 회색 원'으로 보임.
+> `build_one_loop`에서 `!is_ccw`면 각도 negate (검증: hatch bbox 316845×340993→216000×18875).
+> ② **타원/스플라인(ct3/4) endpoint 가 (0,0) 미설정** 시 chord 폴백이 원점까지 늘어나 bbox
+> 폭주(ANSI37 폭 1,237만) → 퇴화(≈0,0) endpoint skip. (`825b95d`)
+> ⚠️ **교훈: 디바이스 진단은 반드시 "사용자가 보는 그 파일"로.** 이번에 처음 `ref.dwg`(엉뚱한
+> 파일)로 진단해 한참 헛수고 → 폰 `logcat`(`CleanCAD/ViewModel load:`)으로 실파일 확인 후 해결.
+> 줌게이트 회색채움은 한때 제거했다가(오진단 기반) **revert**(`ca4e466`) — 원래 동작 복원.
 >
 > **Phase 10 (2026-05-30) 렌더링 성능 최적화 완료 — 팬/줌 렉 제거.**
 > 근본 원인: `EntityRenderer.drawAll`이 매 프레임 188K 엔티티 전체를 2회 스캔 + `worldBounds()`
@@ -136,12 +147,17 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
-수동 검증 결과 (`ref.dwg` 13MB, 110K objects, 디바이스 직접 검증 2026-05-28):
-1. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9에서 보고됨. LEADER arrowhead,
-   DIMENSION 정의점, 작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
-   (이전 이슈 1 "HATCH 패턴 미지원"은 Phase 8.6에서 해결 → 작동 중 ✅)
-- **HATCH 패턴**: ANSI31·AR-CONC·벽돌무늬 등 자주 쓰는 패턴은 Phase 8.6에서 일반 지원됨.
-  남은 개선: 타원호/스플라인 경계의 패턴(현재 솔리드 폴백), gradient fill(범위 외).
+다음 세션 작업 (우선순위 순):
+1. **이슈 2: 도면영역 클리핑 (다음 세션 메인)** — 도면 영역(displayExtents/시트) 밖으로 뻗는
+   stray 지오메트리(원점까지 가는 선·해치, 도면 밖 outlier)가 화면에 길게 그려지는 문제로 추정.
+   현재 `renderBounds`(displayExtents) 컬링은 bbox-intersect 기반이라, 도면↔원점을 **걸치는**
+   엔티티는 bbox가 영역과 겹쳐 컬링 안 됨 → 긴 stray 선으로 보임(추정). **준비 문서:
+   `docs/superpowers/handoff/2026-06-09-next-issue2-clipping.md`** (이번 세션 관찰·관련 코드·가설 정리).
+   ⚠️ **정확한 범위는 다음 세션 시작 시 사용자와 브레인스토밍으로 확정** (이번 세션 교훈: 추측 금지, 실파일 확인).
+2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9 보고. LEADER arrowhead/DIMENSION 정의점/
+   작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
+- **HATCH 패턴**: Phase 8.6 + 후속 곡선경계 버그수정으로 일반 지원(작동 중 ✅). 남은 개선:
+  타원호/스플라인 경계의 *패턴*(현재 솔리드 폴백), gradient fill(범위 외).
 
 ### 디버그/로깅
 - `adb logcat | grep CleanCAD/` 로 ViewModel(파일 카피/파싱 타이밍, entity/layer 개수,
