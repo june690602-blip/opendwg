@@ -80,10 +80,18 @@ static void w_string_utf8(Writer *w, const char *s) {
  */
 static char *tv_to_utf8(const Dwg_Data *dwg, BITCODE_TV tv) {
     if (!tv) return NULL;
-    char *r = bit_TV_to_utf8(tv, dwg->header.codepage);
+    char *r;
+    if (dwg->header.version >= R_2007) {
+        /* R2007+(AC1021+): 텍스트가 UTF-16(TU)로 저장됨 → bit_convert_TU.
+         * 이전엔 모든 버전에 bit_TV_to_utf8(codepage)를 써서 신버전 한글이 깨졌다. */
+        r = bit_convert_TU((BITCODE_TU)tv);
+    } else {
+        /* ~R2004: 도면 코드페이지(CP949 등) 인코딩 → bit_TV_to_utf8 */
+        r = bit_TV_to_utf8(tv, dwg->header.codepage);
+    }
     if (!r) return NULL;
     if (r == (char *)tv) {
-        /* bit_TV_to_utf8이 src를 그대로 반환 → free() 안전을 위해 복사 */
+        /* 변환 함수가 src를 그대로 반환 → free() 안전을 위해 복사 */
         return strdup((const char *)tv);
     }
     return r;
