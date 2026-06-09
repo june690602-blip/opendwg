@@ -18,10 +18,22 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-05-30) — Phase 10 렌더링 성능 최적화 완료
+## Status (2026-06-09) — Phase 8.6 HATCH 패턴 렌더링 완료
 
-**현재 HEAD: `0478a52`** (Phase 9.4 XCLIP). Phase 10 변경은 **working tree 미커밋**.
+**Phase 9.4/10/11 은 main 에 커밋됨 (HEAD `89f7698`).** Phase 8.6(HATCH 패턴)은 브랜치
+`feat/hatch-pattern-rendering` 에 4 커밋(`7ab8f27`→`869b708`), 아직 **미머지**.
 
+> **Phase 8.6 (2026-06-09) HATCH 패턴 렌더링 완료 — 실제 패턴 라인 재현.**
+> 근본 원인: 비솔리드 HATCH가 경계선만 렌더(패턴 정의선 무시) → 다른 캐드앱 대비 시각 차이 큼.
+> 수정: `dwg_serialize.c` `write_hatch` 재작성 — 로드 시 1회 패턴 def-line을 경계로 **스캔라인
+> 클리핑**(even-odd, dash)해 라인 세그먼트로 확장(u축=방향/v축=수직 좌표계로 평행선=수평선 단순화).
+> 경계는 라인/폴리라인+bulge/원호 테셀레이션(타원호·스플라인은 chord+솔리드 폴백). 밀도 캡
+> (4000 seg/hatch)+렌더러 줌 게이트(`screenSpacing<3px`면 반투명 솔리드)로 Phase 10 성능 유지.
+> protocol v2: `patternFallback`/`minLineSpacing`/`fillLines` 추가. **검증(ref.dwg, 에뮬 API36):**
+> 로드 성공 192,882 엔티티(hatch 160), 수치 캘리브레이션 — ANSI31(솔리드)·AR-RROOF(점선) 정상
+> 생성, 폴백 0, def-line=모델공간 해상형태 직접 사용 확인. 단위테스트 77개. 상세:
+> `docs/superpowers/handoff/2026-06-09-phase8.6-hatch-pattern.md`.
+>
 > **Phase 10 (2026-05-30) 렌더링 성능 최적화 완료 — 팬/줌 렉 제거.**
 > 근본 원인: `EntityRenderer.drawAll`이 매 프레임 188K 엔티티 전체를 2회 스캔 + `worldBounds()`
 > 매 프레임 재계산(polyline/hatch `minOf` 람다 → iterator/박싱 할당 → GC 폭증). 공간 인덱스 없음.
@@ -48,6 +60,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 > 상세는 Phase 10 핸드오프 참조.
 
 ### 작동 중 ✅
+- **HATCH 패턴 채움 (Phase 8.6)** — 비솔리드 HATCH를 임베드 def-line으로 실제 패턴 라인 렌더
+  (ANSI31·AR-RROOF 등). native `write_hatch`가 스캔라인 클리핑(even-odd+dash)으로 채움 라인 생성,
+  줌 게이트로 멀리=반투명 솔리드/가까이=패턴 라인. 곡선 경계·밀도초과는 솔리드 폴백. (브랜치 미머지)
 - **파일 연결(열기) — 카톡 등에서 .dwg "열기" 시 앱 실행 (Phase 11)** — AndroidManifest VIEW 필터를
   표준 DWG MIME(application/acad·x-dwg·dwg, image/vnd.dwg·x-dwg, drawing/dwg, application/x-autocad)
   + `application/octet-stream`(카톡은 .dwg 를 일반 바이너리로 넘김)로 확장. octet-stream 을 폭넓게
@@ -122,10 +137,11 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 수동 검증 결과 (`ref.dwg` 13MB, 110K objects, 디바이스 직접 검증 2026-05-28):
-1. **HATCH 패턴 미지원** — ANSI31/AR-CONC/벽돌무늬 등 모두 반투명 회색 솔리드로 fallback.
-   다른 캐드앱 대비 시각적 차이 큼. → Phase 8.6 (우선순위 낮음): 자주 쓰이는 10여개 패턴 라인 생성.
-2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9에서 보고됨. LEADER arrowhead,
+1. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9에서 보고됨. LEADER arrowhead,
    DIMENSION 정의점, 작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
+   (이전 이슈 1 "HATCH 패턴 미지원"은 Phase 8.6에서 해결 → 작동 중 ✅)
+- **HATCH 패턴**: ANSI31·AR-CONC·벽돌무늬 등 자주 쓰는 패턴은 Phase 8.6에서 일반 지원됨.
+  남은 개선: 타원호/스플라인 경계의 패턴(현재 솔리드 폴백), gradient fill(범위 외).
 
 ### 디버그/로깅
 - `adb logcat | grep CleanCAD/` 로 ViewModel(파일 카피/파싱 타이밍, entity/layer 개수,
