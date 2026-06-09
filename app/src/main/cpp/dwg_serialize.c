@@ -8,6 +8,11 @@
 
 #define DWGB_MAX_INSERT_DEPTH 5
 #define DWGB_MAX_ENTITIES 500000
+#define DWGB_PI 3.14159265358979323846
+#define HATCH_ARC_MIN_SEGS 8
+#define HATCH_ARC_MAX_SEGS 64
+#define HATCH_MAX_FILL_SEGMENTS 4000     /* hatch당 채움 세그먼트 상한 → 초과 시 솔리드 폴백 */
+#define HATCH_MAX_FAMILY_LINES 20000     /* defline당 평행선 상한 → 초과 시 솔리드 폴백 */
 
 /* XCLIP: 현재 활성 world 클립 사각형(축정렬). write_insert 진입 시 set, 나갈 때 restore.
  * 기하 클리핑(선/폴리라인 잘라내기)과 소형 엔티티 컬링에 사용. */
@@ -644,68 +649,288 @@ static void write_multileader(Writer *w, const Dwg_Data *dwg, const Dwg_Object *
     }
 }
 
+/* ---- HATCH 패턴 채움용 동적 double 버퍼 + 헬퍼 ---- */
+
+typedef struct { double *v; int n; int cap; } DBuf;
+
+static void dbuf_init(DBuf *b) { b->v = NULL; b->n = 0; b->cap = 0; }
+static void dbuf_free(DBuf *b) { free(b->v); b->v = NULL; b->n = 0; b->cap = 0; }
+static int  dbuf_push(DBuf *b, double x) {
+    if (b->n >= b->cap) {
+        int nc = b->cap ? b->cap * 2 : 64;
+        double *nv = (double *)realloc(b->v, (size_t)nc * sizeof(double));
+        if (!nv) return 0;
+        b->v = nv; b->cap = nc;
+    }
+    b->v[b->n++] = x; return 1;
+}
+static void dbuf_push_xform(DBuf *b, double x, double y,
+                            double sx, double sy, double rot, double tx, double ty) {
+    affine_point(&x, &y, sx, sy, rot, tx, ty);
+    dbuf_push(b, x); dbuf_push(b, y);
+}
+
+/* 원호를 짧은 선분으로 분할해 점들을 push (시작점 제외, 끝점 포함). 로컬좌표로 샘플 후 변환. */
+static void emit_arc(DBuf *b, double cx, double cy, double r,
+                     double a0, double a1, int ccw,
+                     double sx, double sy, double rot, double tx, double ty) {
+    double sweep = a1 - a0;
+    if (ccw)  { while (sweep < 0) sweep += 2.0 * DWGB_PI; }
+    else      { while (sweep > 0) sweep -= 2.0 * DWGB_PI; }
+    double aSweep = fabs(sweep);
+    int segs = (int)ceil(aSweep / (DWGB_PI / 16.0));   /* ~11.25° 간격 */
+    if (segs < HATCH_ARC_MIN_SEGS) segs = HATCH_ARC_MIN_SEGS;
+    if (segs > HATCH_ARC_MAX_SEGS) segs = HATCH_ARC_MAX_SEGS;
+    for (int i = 1; i <= segs; ++i) {
+        double a = a0 + sweep * ((double)i / (double)segs);
+        dbuf_push_xform(b, cx + r * cos(a), cy + r * sin(a), sx, sy, rot, tx, ty);
+    }
+}
+
+/* polyline bulge 구간을 원호로 분할해 push (시작점 제외, 끝점 포함). */
+static void emit_bulge(DBuf *b, double x0, double y0, double x1, double y1, double bulge,
+                       double sx, double sy, double rot, double tx, double ty) {
+    if (fabs(bulge) < 1e-9) { dbuf_push_xform(b, x1, y1, sx, sy, rot, tx, ty); return; }
+    double theta = 4.0 * atan(bulge);
+    double half = theta / 2.0, s = sin(half);
+    if (fabs(s) < 1e-9) { dbuf_push_xform(b, x1, y1, sx, sy, rot, tx, ty); return; }
+    double cot = cos(half) / s;
+    double cx = (x0 + x1) / 2.0 - (y1 - y0) / 2.0 * cot;
+    double cy = (y0 + y1) / 2.0 + (x1 - x0) / 2.0 * cot;
+    double r  = sqrt((x0 - cx) * (x0 - cx) + (y0 - cy) * (y0 - cy));
+    double a0 = atan2(y0 - cy, x0 - cx);
+    double a1 = atan2(y1 - cy, x1 - cx);
+    emit_arc(b, cx, cy, r, a0, a1, (bulge > 0) ? 1 : 0, sx, sy, rot, tx, ty);
+}
+
+/* 경계 path 하나를 변환된 월드 점열(out)로 빌드. 타원호/스플라인(curve_type 3,4)을
+ * 만나면 코드(chord)로 근사하고 *unsupported=1 (호출자가 patternFallback 처리). */
+static void build_one_loop(DBuf *out, Dwg_HATCH_Path *path, int *unsupported,
+                           double sx, double sy, double rot, double tx, double ty) {
+    if (path->flag & 2) {                       /* polyline path */
+        BITCODE_BL nv = path->num_segs_or_paths;
+        if (nv == 0 || !path->polyline_paths) return;
+        dbuf_push_xform(out, path->polyline_paths[0].point.x,
+                             path->polyline_paths[0].point.y, sx, sy, rot, tx, ty);
+        BITCODE_BL lim = path->closed ? nv : (nv > 0 ? nv - 1 : 0);
+        for (BITCODE_BL i = 0; i < lim; ++i) {
+            BITCODE_BL j = (i + 1) % nv;
+            double ax = path->polyline_paths[i].point.x, ay = path->polyline_paths[i].point.y;
+            double bx = path->polyline_paths[j].point.x, by = path->polyline_paths[j].point.y;
+            double bl = path->bulges_present ? path->polyline_paths[i].bulge : 0.0;
+            if (fabs(bl) > 1e-9) emit_bulge(out, ax, ay, bx, by, bl, sx, sy, rot, tx, ty);
+            else                 dbuf_push_xform(out, bx, by, sx, sy, rot, tx, ty);
+        }
+    } else {                                     /* segment path */
+        if (!path->segs) return;
+        for (BITCODE_BL s = 0; s < path->num_segs_or_paths; ++s) {
+            Dwg_HATCH_PathSeg *sg = &path->segs[s];
+            if (sg->curve_type == 1) {           /* LINE */
+                if (s == 0)
+                    dbuf_push_xform(out, sg->first_endpoint.x, sg->first_endpoint.y,
+                                    sx, sy, rot, tx, ty);
+                dbuf_push_xform(out, sg->second_endpoint.x, sg->second_endpoint.y,
+                                sx, sy, rot, tx, ty);
+            } else if (sg->curve_type == 2) {    /* CIRCULAR ARC */
+                /* DWG hatch boundary 의 CW(!is_ccw) arc 는 각도가 Y-mirror 되어 저장됨(실측):
+                 * 각도를 negate 해야 인접 세그먼트와 연속(안 그러면 reflex sweep → 반지름이
+                 * 도면급인 거대 원이 그려져 회색 덩어리/왜곡). is_ccw arc 는 그대로 사용. */
+                int cc = sg->is_ccw ? 1 : 0;
+                double aa0 = sg->start_angle, aa1 = sg->end_angle;
+                if (!cc) { aa0 = -aa0; aa1 = -aa1; }
+                if (s == 0)
+                    dbuf_push_xform(out, sg->center.x + sg->radius * cos(aa0),
+                                         sg->center.y + sg->radius * sin(aa0),
+                                    sx, sy, rot, tx, ty);
+                emit_arc(out, sg->center.x, sg->center.y, sg->radius,
+                         aa0, aa1, cc, sx, sy, rot, tx, ty);
+            } else {                              /* ELLIPTICAL ARC / SPLINE → chord 근사 */
+                *unsupported = 1;
+                /* LibreDWG 가 first/second_endpoint 를 (0,0)으로 미설정하는 경우가 있어,
+                 * 그대로 push 하면 경계가 원점까지 늘어나 bbox 가 폭주(원점~도면 전체).
+                 * 퇴화(≈0,0) endpoint 는 skip 해 폭주를 막는다. */
+                double e1x = sg->first_endpoint.x,  e1y = sg->first_endpoint.y;
+                double e2x = sg->second_endpoint.x, e2y = sg->second_endpoint.y;
+                if (s == 0 && (fabs(e1x) > 1e-6 || fabs(e1y) > 1e-6))
+                    dbuf_push_xform(out, e1x, e1y, sx, sy, rot, tx, ty);
+                if (fabs(e2x) > 1e-6 || fabs(e2y) > 1e-6)
+                    dbuf_push_xform(out, e2x, e2y, sx, sy, rot, tx, ty);
+            }
+        }
+    }
+}
+
 /* ---- 9a-5: HATCH ---- */
+
+/* uv 좌표 [uA,uB]@vk 구간을 월드 세그먼트(x1,y1,x2,y2)로 fill에 push. */
+static int emit_uv_seg(DBuf *fill, double p0x, double p0y,
+                       double dirx, double diry, double perpx, double perpy,
+                       double uA, double uB, double vk) {
+    double ax = p0x + uA * dirx + vk * perpx, ay = p0y + uA * diry + vk * perpy;
+    double bx = p0x + uB * dirx + vk * perpx, by = p0y + uB * diry + vk * perpy;
+    if (!dbuf_push(fill, ax)) return 0; if (!dbuf_push(fill, ay)) return 0;
+    if (!dbuf_push(fill, bx)) return 0; if (!dbuf_push(fill, by)) return 0;
+    return 1;
+}
+
+/* 한 def-line의 평행선 패밀리를 경계로 클립해 fill에 push. perp 간격을 min_spacing에 반영.
+ * 반환: 1 정상, 0 폭발(밀도/라인수 초과 → 호출자가 폴백 처리). */
+static int emit_defline_fill(DBuf *fill, Dwg_HATCH_DefLine *dl,
+                             double **loop_pts, int *loop_np, int nloops,
+                             double sx, double sy, double rot, double tx, double ty,
+                             double *min_spacing) {
+    double p0x = dl->pt0.x, p0y = dl->pt0.y;
+    double ux = dl->pt0.x + cos(dl->angle), uy = dl->pt0.y + sin(dl->angle);
+    double ox = dl->pt0.x + dl->offset.x,   oy = dl->pt0.y + dl->offset.y;
+    affine_point(&p0x, &p0y, sx, sy, rot, tx, ty);
+    affine_point(&ux, &uy, sx, sy, rot, tx, ty);
+    affine_point(&ox, &oy, sx, sy, rot, tx, ty);
+    double dirx = ux - p0x, diry = uy - p0y;
+    double along = sqrt(dirx * dirx + diry * diry);
+    if (along < 1e-12) return 1;                 /* 퇴화 → 이 defline 무시 */
+    dirx /= along; diry /= along;
+    double perpx = -diry, perpy = dirx;
+    double offx = ox - p0x, offy = oy - p0y;
+    double off_u = offx * dirx + offy * diry;
+    double off_v = offx * perpx + offy * perpy;
+    if (fabs(off_v) < 1e-9) return 1;            /* 평행선 겹침 → 무시 */
+    if (fabs(off_v) < *min_spacing) *min_spacing = fabs(off_v);
+
+    double vmin = 1e18, vmax = -1e18;
+    for (int L = 0; L < nloops; ++L) {
+        double *pp = loop_pts[L]; int np = loop_np[L];
+        for (int i = 0; i < np; ++i) {
+            double X = pp[2*i] - p0x, Y = pp[2*i+1] - p0y;
+            double v = X * perpx + Y * perpy;
+            if (v < vmin) vmin = v; if (v > vmax) vmax = v;
+        }
+    }
+    if (vmin > vmax) return 1;
+    double klo_d = vmin / off_v, khi_d = vmax / off_v;
+    long klo = (long)floor(fmin(klo_d, khi_d)) - 1;
+    long khi = (long)ceil (fmax(klo_d, khi_d)) + 1;
+    if (khi - klo > HATCH_MAX_FAMILY_LINES) return 0;
+
+    double total = 0.0;
+    for (BITCODE_BS i = 0; i < dl->num_dashes; ++i) total += fabs(dl->dashes[i]) * along;
+
+    for (long k = klo; k <= khi; ++k) {
+        double vk = (double)k * off_v;
+        double cross[512]; int nc = 0;
+        for (int L = 0; L < nloops; ++L) {
+            double *pp = loop_pts[L]; int np = loop_np[L];
+            for (int i = 0; i < np; ++i) {
+                int j = (i + 1) % np;
+                double X1 = pp[2*i]   - p0x, Y1 = pp[2*i+1] - p0y;
+                double X2 = pp[2*j]   - p0x, Y2 = pp[2*j+1] - p0y;
+                double v1 = X1 * perpx + Y1 * perpy;
+                double v2 = X2 * perpx + Y2 * perpy;
+                if ((v1 <= vk && vk < v2) || (v2 <= vk && vk < v1)) {
+                    double t = (vk - v1) / (v2 - v1);
+                    double u1 = X1 * dirx + Y1 * diry;
+                    double u2 = X2 * dirx + Y2 * diry;
+                    if (nc < 512) cross[nc++] = u1 + t * (u2 - u1);
+                }
+            }
+        }
+        if (nc < 2) continue;
+        for (int a = 1; a < nc; ++a) {           /* insertion sort */
+            double key = cross[a]; int bb = a - 1;
+            while (bb >= 0 && cross[bb] > key) { cross[bb+1] = cross[bb]; bb--; }
+            cross[bb+1] = key;
+        }
+        double phase = (double)k * off_u;
+        for (int pi = 0; pi + 1 < nc; pi += 2) {
+            double uA = cross[pi], uB = cross[pi+1];
+            if (uB - uA < 1e-9) continue;
+            if (dl->num_dashes <= 0 || total <= 1e-9) {
+                if (!emit_uv_seg(fill, p0x, p0y, dirx, diry, perpx, perpy, uA, uB, vk)) return 0;
+            } else {
+                double m = floor((uA - phase) / total);
+                double cur = phase + m * total;
+                int guard = 0;
+                while (cur < uB && guard++ < 200000) {
+                    for (BITCODE_BS i = 0; i < dl->num_dashes; ++i) {
+                        double len = fabs(dl->dashes[i]) * along;
+                        double segEnd = cur + len;
+                        if (dl->dashes[i] > 0) {
+                            double a = fmax(cur, uA), b = fmin(segEnd, uB);
+                            if (b > a && !emit_uv_seg(fill, p0x, p0y, dirx, diry,
+                                                      perpx, perpy, a, b, vk)) return 0;
+                        }
+                        cur = segEnd;
+                        if (dl->dashes[i] == 0) cur += 1e-6;   /* 0(dot) 무한루프 방지 */
+                        if (cur >= uB) break;
+                    }
+                }
+            }
+            if (fill->n / 4 > HATCH_MAX_FILL_SEGMENTS) return 0;
+        }
+    }
+    return 1;
+}
 
 static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                         double tx, double ty, double sx, double sy, double rot) {
     Dwg_Entity_HATCH *e = obj->tio.entity->tio.HATCH;
     write_entity_header(w, dwg, obj, DWGB_TYPE_HATCH);
     uint8_t isSolid = e->is_solid_fill ? 1 : 0;
-    w_u8(w, isSolid);
 
-    /* Placeholder for num_paths — filled after loop */
-    size_t pos_num_paths = w->len;
-    w_i32(w, 0);
-    int32_t actual_paths = 0;
-    int do_transform = (tx != 0.0 || ty != 0.0 || sx != 1.0 || sy != 1.0 || rot != 0.0);
-
-    for (BITCODE_BL p = 0; p < e->num_paths; ++p) {
-        Dwg_HATCH_Path *path = &e->paths[p];
-        int is_polyline = (path->flag & 2) != 0;
-
-        /* Placeholder for num_verts */
-        size_t pos_num_verts = w->len;
-        w_i32(w, 0);
-        int32_t nv = 0;
-
-        if (is_polyline) {
-            /* Polyline path: count is also num_segs_or_paths */
-            for (BITCODE_BL v = 0; v < path->num_segs_or_paths; ++v) {
-                double px = path->polyline_paths[v].point.x;
-                double py = path->polyline_paths[v].point.y;
-                if (do_transform) affine_point(&px, &py, sx, sy, rot, tx, ty);
-                w_f64(w, px); w_f64(w, py);
-                nv++;
-            }
-        } else {
-            /* Segment path: only emit LINE segments (curve_type == 1) */
-            for (BITCODE_BL s = 0; s < path->num_segs_or_paths; ++s) {
-                Dwg_HATCH_PathSeg *seg = &path->segs[s];
-                if (seg->curve_type == 1) {
-                    double p1x = seg->first_endpoint.x,  p1y = seg->first_endpoint.y;
-                    double p2x = seg->second_endpoint.x, p2y = seg->second_endpoint.y;
-                    if (do_transform) {
-                        affine_point(&p1x, &p1y, sx, sy, rot, tx, ty);
-                        affine_point(&p2x, &p2y, sx, sy, rot, tx, ty);
-                    }
-                    w_f64(w, p1x); w_f64(w, p1y);
-                    w_f64(w, p2x); w_f64(w, p2y);
-                    nv += 2;
-                }
-            }
+    int nloops = (int)e->num_paths;
+    if (nloops < 0) nloops = 0;
+    double **loop_pts = NULL;
+    int     *loop_np  = NULL;
+    int      unsupported = 0;
+    if (nloops > 0 && e->paths) {
+        loop_pts = (double **)calloc((size_t)nloops, sizeof(double *));
+        loop_np  = (int *)    calloc((size_t)nloops, sizeof(int));
+        if (!loop_pts || !loop_np) {
+            free(loop_pts); free(loop_np);
+            w_u8(w, isSolid); w_u8(w, 0); w_f64(w, 0.0); w_i32(w, 0); w_i32(w, 0);
+            return;
         }
-        if (!w->ok) return;
-        if (nv == 0) {
-            /* LINE segment가 하나도 없으면 placeholder를 rewind해서 num_paths(actual_paths)와
-               stream에 남은 path 개수를 일치시킴 — 안 그러면 디코더 오프셋이 path 하나당 4byte씩 어긋남. */
-            w->len = pos_num_verts;
-        } else {
-            memcpy(w->buf + pos_num_verts, &nv, 4);
-            actual_paths++;
+        for (int L = 0; L < nloops; ++L) {
+            DBuf lb; dbuf_init(&lb);
+            build_one_loop(&lb, &e->paths[L], &unsupported, sx, sy, rot, tx, ty);
+            loop_pts[L] = lb.v; loop_np[L] = lb.n / 2;
         }
     }
-    if (!w->ok) return;
-    memcpy(w->buf + pos_num_paths, &actual_paths, 4);
+
+    DBuf fill; dbuf_init(&fill);
+    uint8_t patternFallback = 0;
+    double  min_spacing = 1e18;
+    if (!isSolid && nloops > 0 && e->num_deflines > 0) {
+        if (unsupported) {
+            patternFallback = 1;                 /* 곡선 경계 → 솔리드 폴백 */
+        } else {
+            int ok = 1;
+            for (BITCODE_BS d = 0; d < e->num_deflines && ok; ++d)
+                ok = emit_defline_fill(&fill, &e->deflines[d], loop_pts, loop_np, nloops,
+                                       sx, sy, rot, tx, ty, &min_spacing);
+            if (!ok) { dbuf_free(&fill); dbuf_init(&fill); patternFallback = 1; }
+        }
+    }
+    double out_spacing = (patternFallback || min_spacing >= 1e18) ? 0.0 : min_spacing;
+
+    w_u8(w, isSolid);
+    w_u8(w, patternFallback);
+    w_f64(w, out_spacing);
+    w_i32(w, nloops);
+    for (int L = 0; L < nloops; ++L) {
+        int nv = loop_np ? loop_np[L] : 0;
+        w_i32(w, nv);
+        for (int i = 0; i < nv; ++i) { w_f64(w, loop_pts[L][2*i]); w_f64(w, loop_pts[L][2*i+1]); }
+    }
+    int nfill = fill.n / 4;
+    w_i32(w, nfill);
+    for (int i = 0; i < nfill; ++i) {
+        w_f64(w, fill.v[4*i]);   w_f64(w, fill.v[4*i+1]);
+        w_f64(w, fill.v[4*i+2]); w_f64(w, fill.v[4*i+3]);
+    }
+
+    dbuf_free(&fill);
+    if (loop_pts) { for (int L = 0; L < nloops; ++L) free(loop_pts[L]); free(loop_pts); }
+    free(loop_np);
 }
 
 /* ---- Basic entities ---- */

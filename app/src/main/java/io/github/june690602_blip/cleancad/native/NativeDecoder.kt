@@ -232,12 +232,20 @@ object NativeDecoder {
 
     private fun decodeHatch(buf: ByteBuffer, layer: String): DxfHatch {
         val isSolid = buf.get() != 0.toByte()
+        val patternFallback = buf.get() != 0.toByte()
+        val minLineSpacing = buf.double
         val numPaths = buf.int
         val paths = List(numPaths) {
             val n = buf.int
             List(n) { Vec2(buf.double, buf.double) }
         }
-        return DxfHatch(layer, isSolid, paths)
+        val numFill = buf.int
+        val fillLines = ArrayList<Vec2>(numFill * 2)
+        repeat(numFill) {
+            fillLines.add(Vec2(buf.double, buf.double))
+            fillLines.add(Vec2(buf.double, buf.double))
+        }
+        return DxfHatch(layer, isSolid, patternFallback, minLineSpacing, paths, fillLines)
     }
 
     private fun decodeDimension(buf: ByteBuffer, layer: String): DxfDimension {

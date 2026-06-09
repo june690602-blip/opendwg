@@ -247,6 +247,9 @@ class EntityRenderer {
          *  패턴 hatch가 미지원이라 검정 솔리드 덩어리 방지 목적. */
         const val HATCH_FILL_ALPHA_MASK: Int = 0x40000000
 
+        /** 패턴 채움 라인 최소 화면 간격(px). 이 미만이면 라인 대신 반투명 솔리드(조밀 폴백). */
+        const val HATCH_MIN_PATTERN_SPACING_PX: Double = 3.0
+
         /** POINT 점 마커 반경 (화면 px, 줌 무관 고정). */
         const val POINT_RADIUS_PX: Float = 1.5f
     }
@@ -372,15 +375,32 @@ class EntityRenderer {
             }
             path.close()
         }
-        if (e.isSolid) {
-            // 패턴 hatch 미지원 → 솔리드도 25% 알파로 반투명 채움
-            // (검은 덩어리로 다른 도형 가리는 문제 방지)
-            val baseColor = linePaint.color
-            fillPaint.color = (baseColor and 0x00FFFFFF) or HATCH_FILL_ALPHA_MASK
-            canvas.drawPath(path, fillPaint)
+        val screenSpacing = e.minLineSpacing * CoordTransform.currentScale(matrix)
+        val showPattern = !e.isSolid && !e.patternFallback &&
+            e.fillLines.isNotEmpty() && screenSpacing >= HATCH_MIN_PATTERN_SPACING_PX
+        when {
+            showPattern -> drawHatchFillLines(e, canvas, matrix)
+            e.isSolid || e.patternFallback || e.fillLines.isNotEmpty() -> {
+                // 솔리드 hatch, 폴백, 또는 이 줌에선 패턴이 너무 조밀 → 반투명 솔리드
+                fillPaint.color = (linePaint.color and 0x00FFFFFF) or HATCH_FILL_ALPHA_MASK
+                canvas.drawPath(path, fillPaint)
+            }
+            // else: 비솔리드 + 패턴 정보 없음 → 채움 없이 경계만
         }
         // 경계는 항상 그림 (솔리드든 패턴이든 boundary 시각화)
         canvas.drawPath(path, linePaint)
+    }
+
+    /** 패턴 채움 라인(월드 세그먼트)을 스크린으로 변환해 한 번에 drawLines. */
+    private fun drawHatchFillLines(e: DxfHatch, canvas: Canvas, matrix: Matrix) {
+        val pts = e.fillLines
+        val arr = FloatArray(pts.size * 2)
+        var j = 0
+        for (p in pts) {
+            val s = CoordTransform.worldToScreen(p, matrix)
+            arr[j++] = s.x; arr[j++] = s.y
+        }
+        canvas.drawLines(arr, linePaint)
     }
 
     private fun drawEllipse(e: DxfEllipse, canvas: Canvas, matrix: Matrix) {

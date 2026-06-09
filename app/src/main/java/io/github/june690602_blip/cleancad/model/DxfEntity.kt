@@ -118,7 +118,10 @@ data class DxfDimension(
 data class DxfHatch(
     override val layer: String,
     val isSolid: Boolean,
-    val paths: List<List<Vec2>>
+    val patternFallback: Boolean,
+    val minLineSpacing: Double,
+    val paths: List<List<Vec2>>,
+    val fillLines: List<Vec2>
 ) : DxfEntity()
 
 data class DxfLeader(
