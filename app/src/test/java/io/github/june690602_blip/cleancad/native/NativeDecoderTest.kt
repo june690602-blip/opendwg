@@ -362,33 +362,91 @@ class NativeDecoderTest {
         assertEquals(2, s.controlPoints.size)
     }
 
-    @Test
-    fun decode_hatch_twoSolidPaths() {
-        val b = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+    private fun hatchEntity(
+        layerIdx: Int,
+        isSolid: Boolean,
+        patternFallback: Boolean,
+        minLineSpacing: Double,
+        paths: List<List<Pair<Double, Double>>>,
+        fillSegments: List<DoubleArray>  // each = [x1,y1,x2,y2]
+    ): ByteArray {
+        val cap = 1 + 4 + 2 + 4 +          // entity header
+            1 + 1 + 8 + 4 +               // isSolid, fallback, spacing, num_paths
+            paths.sumOf { 4 + it.size * 16 } +
+            4 + fillSegments.size * 32
+        val b = ByteBuffer.allocate(cap).order(ByteOrder.LITTLE_ENDIAN)
         b.put(NativeProtocol.TYPE_HATCH.toByte())
-        b.putInt(-1); b.putShort(-1); b.putInt(0)
-        b.put(1)         // isSolid
-        b.putInt(2)      // num_paths
-        // path 1: 4 vertices
-        b.putInt(4)
-        b.putDouble(0.0); b.putDouble(0.0)
-        b.putDouble(1.0); b.putDouble(0.0)
-        b.putDouble(1.0); b.putDouble(1.0)
-        b.putDouble(0.0); b.putDouble(1.0)
-        // path 2: 3 vertices
-        b.putInt(3)
-        b.putDouble(2.0); b.putDouble(2.0)
-        b.putDouble(3.0); b.putDouble(2.0)
-        b.putDouble(2.5); b.putDouble(3.0)
-        val entity = ByteArray(b.position())
-        System.arraycopy(b.array(), 0, entity, 0, entity.size)
+        b.putInt(layerIdx); b.putShort(-1); b.putInt(0)
+        b.put(if (isSolid) 1 else 0)
+        b.put(if (patternFallback) 1 else 0)
+        b.putDouble(minLineSpacing)
+        b.putInt(paths.size)
+        paths.forEach { p ->
+            b.putInt(p.size)
+            p.forEach { (x, y) -> b.putDouble(x); b.putDouble(y) }
+        }
+        b.putInt(fillSegments.size)
+        fillSegments.forEach { s ->
+            b.putDouble(s[0]); b.putDouble(s[1]); b.putDouble(s[2]); b.putDouble(s[3])
+        }
+        val out = ByteArray(b.position())
+        System.arraycopy(b.array(), 0, out, 0, out.size)
+        return out
+    }
 
-        val drawing = NativeDecoder.decode(buildBuffer(entities = listOf(entity)))
-        val h = drawing.entities[0] as io.github.june690602_blip.cleancad.model.DxfHatch
+    @Test
+    fun decode_hatch_solid_twoPaths() {
+        val bytes = buildBuffer(entities = listOf(hatchEntity(
+            layerIdx = -1, isSolid = true, patternFallback = false, minLineSpacing = 0.0,
+            paths = listOf(
+                listOf(0.0 to 0.0, 1.0 to 0.0, 1.0 to 1.0, 0.0 to 1.0),
+                listOf(2.0 to 2.0, 3.0 to 2.0, 2.5 to 3.0)
+            ),
+            fillSegments = emptyList()
+        )))
+        val h = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfHatch
         assertTrue(h.isSolid)
+        assertFalse(h.patternFallback)
         assertEquals(2, h.paths.size)
         assertEquals(4, h.paths[0].size)
         assertEquals(3, h.paths[1].size)
+        assertEquals(0, h.fillLines.size)
+    }
+
+    @Test
+    fun decode_hatch_patternFillLines() {
+        val bytes = buildBuffer(entities = listOf(hatchEntity(
+            layerIdx = -1, isSolid = false, patternFallback = false, minLineSpacing = 2.5,
+            paths = listOf(listOf(0.0 to 0.0, 10.0 to 0.0, 10.0 to 10.0, 0.0 to 10.0)),
+            fillSegments = listOf(
+                doubleArrayOf(0.0, 1.0, 10.0, 1.0),
+                doubleArrayOf(0.0, 3.5, 10.0, 3.5)
+            )
+        )))
+        val h = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfHatch
+        assertFalse(h.isSolid)
+        assertEquals(2.5, h.minLineSpacing, 1e-9)
+        // fillLines: 2 segments = 4 Vec2 (consecutive pairs form a segment)
+        assertEquals(4, h.fillLines.size)
+        assertEquals(0.0, h.fillLines[0].x, 1e-9)
+        assertEquals(1.0, h.fillLines[0].y, 1e-9)
+        assertEquals(10.0, h.fillLines[1].x, 1e-9)
+        assertEquals(3.5, h.fillLines[2].y, 1e-9)
+    }
+
+    @Test
+    fun decode_hatch_patternFallback() {
+        val bytes = buildBuffer(entities = listOf(hatchEntity(
+            layerIdx = -1, isSolid = false, patternFallback = true, minLineSpacing = 0.0,
+            paths = listOf(listOf(0.0 to 0.0, 1.0 to 0.0, 1.0 to 1.0)),
+            fillSegments = emptyList()
+        )))
+        val h = NativeDecoder.decode(bytes).entities[0]
+            as io.github.june690602_blip.cleancad.model.DxfHatch
+        assertTrue(h.patternFallback)
+        assertEquals(0, h.fillLines.size)
     }
 
     @Test

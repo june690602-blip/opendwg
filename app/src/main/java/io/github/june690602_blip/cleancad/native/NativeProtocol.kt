@@ -2,7 +2,7 @@ package io.github.june690602_blip.cleancad.native
 
 object NativeProtocol {
     const val MAGIC: Int = 0x42475744  // 'DWGB' little-endian
-    const val VERSION: Int = 1
+    const val VERSION: Int = 2
 
     const val TYPE_LINE: Int = 1
     const val TYPE_CIRCLE: Int = 2
