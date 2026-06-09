@@ -731,21 +731,30 @@ static void build_one_loop(DBuf *out, Dwg_HATCH_Path *path, int *unsupported,
                                     sx, sy, rot, tx, ty);
                 dbuf_push_xform(out, sg->second_endpoint.x, sg->second_endpoint.y,
                                 sx, sy, rot, tx, ty);
-            } else if (sg->curve_type == 2) {    /* CIRCULAR ARC (각도 단위=라디안 가정) */
+            } else if (sg->curve_type == 2) {    /* CIRCULAR ARC */
+                /* DWG hatch boundary 의 CW(!is_ccw) arc 는 각도가 Y-mirror 되어 저장됨(실측):
+                 * 각도를 negate 해야 인접 세그먼트와 연속(안 그러면 reflex sweep → 반지름이
+                 * 도면급인 거대 원이 그려져 회색 덩어리/왜곡). is_ccw arc 는 그대로 사용. */
+                int cc = sg->is_ccw ? 1 : 0;
+                double aa0 = sg->start_angle, aa1 = sg->end_angle;
+                if (!cc) { aa0 = -aa0; aa1 = -aa1; }
                 if (s == 0)
-                    dbuf_push_xform(out, sg->center.x + sg->radius * cos(sg->start_angle),
-                                         sg->center.y + sg->radius * sin(sg->start_angle),
+                    dbuf_push_xform(out, sg->center.x + sg->radius * cos(aa0),
+                                         sg->center.y + sg->radius * sin(aa0),
                                     sx, sy, rot, tx, ty);
                 emit_arc(out, sg->center.x, sg->center.y, sg->radius,
-                         sg->start_angle, sg->end_angle, sg->is_ccw ? 1 : 0,
-                         sx, sy, rot, tx, ty);
+                         aa0, aa1, cc, sx, sy, rot, tx, ty);
             } else {                              /* ELLIPTICAL ARC / SPLINE → chord 근사 */
                 *unsupported = 1;
-                if (s == 0)
-                    dbuf_push_xform(out, sg->first_endpoint.x, sg->first_endpoint.y,
-                                    sx, sy, rot, tx, ty);
-                dbuf_push_xform(out, sg->second_endpoint.x, sg->second_endpoint.y,
-                                sx, sy, rot, tx, ty);
+                /* LibreDWG 가 first/second_endpoint 를 (0,0)으로 미설정하는 경우가 있어,
+                 * 그대로 push 하면 경계가 원점까지 늘어나 bbox 가 폭주(원점~도면 전체).
+                 * 퇴화(≈0,0) endpoint 는 skip 해 폭주를 막는다. */
+                double e1x = sg->first_endpoint.x,  e1y = sg->first_endpoint.y;
+                double e2x = sg->second_endpoint.x, e2y = sg->second_endpoint.y;
+                if (s == 0 && (fabs(e1x) > 1e-6 || fabs(e1y) > 1e-6))
+                    dbuf_push_xform(out, e1x, e1y, sx, sy, rot, tx, ty);
+                if (fabs(e2x) > 1e-6 || fabs(e2y) > 1e-6)
+                    dbuf_push_xform(out, e2x, e2y, sx, sy, rot, tx, ty);
             }
         }
     }
