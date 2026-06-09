@@ -380,16 +380,14 @@ class EntityRenderer {
             e.fillLines.isNotEmpty() && screenSpacing >= HATCH_MIN_PATTERN_SPACING_PX
         when {
             showPattern -> drawHatchFillLines(e, canvas, matrix)
-            e.isSolid -> {
-                // 진짜 솔리드 해치만 반투명 채움 (기존 동작 유지)
+            e.isSolid || e.patternFallback || e.fillLines.isNotEmpty() -> {
+                // 솔리드 hatch, 폴백, 또는 이 줌에선 패턴이 너무 조밀 → 반투명 솔리드
                 fillPaint.color = (linePaint.color and 0x00FFFFFF) or HATCH_FILL_ALPHA_MASK
                 canvas.drawPath(path, fillPaint)
             }
-            // 비솔리드 패턴 해치는 줌아웃 시 채움 없이 경계만 (회색 덩어리 방지).
-            // 줌인하면 위 showPattern 분기에서 실제 패턴 라인을 그린다.
-            // patternFallback(곡선 경계/밀도초과)도 경계만 — 줌아웃 회색 덩어리 방지.
+            // else: 비솔리드 + 패턴 정보 없음 → 채움 없이 경계만
         }
-        // 경계는 항상 그림
+        // 경계는 항상 그림 (솔리드든 패턴이든 boundary 시각화)
         canvas.drawPath(path, linePaint)
     }
 
