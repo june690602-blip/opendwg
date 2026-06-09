@@ -75,6 +75,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
   렌더 정상·단위테스트 73개·`.so` 16KB LOAD 정렬·`bundleRelease` AAB(3 ABI+심볼) 생성. 사용자 액션
   (키스토어·AAB 빌드·콘솔 업로드)은 `docs/store/RELEASE-GUIDE.md`. ⚠️ 키스토어는 본인 생성(gitignore됨).
 - LibreDWG 바이너리 API로 직접 DWG 파싱 (DXF 중간단계 없음)
+- **줌아웃 시 글자 힌트 막대 (Phase 11.5)** — 글자높이 화면 10px 미만이면 글리프를 안 그려서(ANR 방지)
+  멀리서 글자 존재를 인지 못 했다. 이제 3~10px 구간은 텍스트 진행방향으로 **힌트 막대(faint 선)**를
+  batch(`hintBatch`)로 1회 drawLines. <3px 는 노이즈라 스킵. ZWCAD 처럼 "여기 글자 있음" 인지 가능.
 - 한글/일본어/중국어 인코딩 정상 — **버전별 분기**(Phase 11.4): R2007+(AC1021+)는 텍스트가
   UTF-16(TU)라 `bit_convert_TU`, ~R2004는 코드페이지(CP949 등)라 `bit_TV_to_utf8(codepage)`.
   이전엔 모든 버전에 `bit_TV_to_utf8`를 써서 AC1032 등 신버전 한글이 깨졌다(`tv_to_utf8`에서 분기).

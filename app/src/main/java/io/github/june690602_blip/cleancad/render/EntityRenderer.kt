@@ -52,6 +52,9 @@ class EntityRenderer {
      *  1~7초 잔존). primitive FloatArray로 autoboxing 제거. */
     private val lineBatch = HashMap<Int, FloatBuf>(64)
 
+    /** 너무 작아 글자를 못 그리는 텍스트의 "여기 글자 있음" 힌트 막대(선) batch (Phase 11.5). */
+    private val hintBatch = FloatBuf(1024)
+
     private class FloatBuf(initialCapacity: Int = 512) {
         var arr: FloatArray = FloatArray(initialCapacity); private set
         var size: Int = 0; private set
@@ -190,25 +193,55 @@ class EntityRenderer {
         }
 
         // pass 2: 텍스트 — 지오메트리 위에 얹는다. 후보는 이미 viewport 로 컬링됨.
+        // 글자높이 >=10px: 실제 글자. 3~10px: 힌트 막대(ZWCAD처럼 "여기 글자 있음" 표시). <3px: 스킵.
+        hintBatch.clear()
         for (k in 0 until cnt) {
             when (val entity = ents[data[k]]) {
                 is DxfText -> {
-                    if (entity.height * scale < MIN_TEXT_BASE_PIXELS) continue
-                    draw(entity, canvas, matrix)
+                    val px = entity.height * scale
+                    if (px >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                    else if (px >= TEXT_HINT_MIN_PIXELS)
+                        addTextHint(entity.insertionPoint, entity.text, px, entity.rotationDeg, matrix)
                 }
                 is DxfMText -> {
-                    if (entity.height * scale < MIN_TEXT_BASE_PIXELS) continue
-                    draw(entity, canvas, matrix)
+                    val px = entity.height * scale
+                    if (px >= MIN_TEXT_BASE_PIXELS) draw(entity, canvas, matrix)
+                    else if (px >= TEXT_HINT_MIN_PIXELS)
+                        addTextHint(entity.insertionPoint, entity.text, px, entity.rotationDeg, matrix)
                 }
                 else -> { /* already drawn in first pass */ }
             }
         }
+        if (hintBatch.size > 0) {
+            linePaint.color = (defaultLineColor and 0x00FFFFFF) or (0x55 shl 24)  // ~33% 알파 힌트
+            canvas.drawLines(hintBatch.trimmedCopy(), linePaint)
+            linePaint.color = defaultLineColor
+        }
+    }
+
+    /** 글자가 너무 작아 못 그릴 때 "여기 글자 있음" 힌트 선분 1개를 batch 에 추가한다.
+     *  글자폭 ≈ 글자수×높이×0.55, 텍스트 진행방향으로 배치(회전 반영), 한 번에 drawLines. */
+    private fun addTextHint(insertion: Vec2, text: String, pxHeight: Double, rotDeg: Double, matrix: Matrix) {
+        val pt = CoordTransform.worldToScreen(insertion, matrix)
+        val n = text.length.coerceIn(1, 40)
+        val wPx = (n * pxHeight * 0.55).toFloat()
+        val r = Math.toRadians(rotDeg)
+        val dx = Math.cos(r).toFloat()
+        val dy = (-Math.sin(r)).toFloat()
+        val yoff = (pxHeight * 0.35).toFloat()      // 베이스라인보다 위(중앙 근사). 진행방향 수직=(dy,-dx)
+        val ox = pt.x + dy * yoff
+        val oy = pt.y - dx * yoff
+        hintBatch.add4(ox, oy, ox + wPx * dx, oy + wPx * dy)
     }
 
     private companion object {
         /** zoom out 상태에서 글자 자체가 이 픽셀 수보다 작아지면 렌더 자체를 스킵.
          *  까만 글자 덩어리(수많은 작은 텍스트 mass) 방지. Phase 9.1: 4→10 (대용량 도면 ANR 방지). */
         const val MIN_TEXT_BASE_PIXELS: Double = 10.0
+
+        /** 글자높이가 이 px 이상~MIN_TEXT_BASE_PIXELS 미만이면 힌트 막대로 표시(Phase 11.5).
+         *  이 값 미만은 너무 작아 노이즈 → 스킵. */
+        const val TEXT_HINT_MIN_PIXELS: Double = 3.0
 
         /** HATCH 솔리드 채우기 알파 — 0x40 = 25% 불투명도 (반투명).
          *  패턴 hatch가 미지원이라 검정 솔리드 덩어리 방지 목적. */
