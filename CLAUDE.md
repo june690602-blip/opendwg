@@ -18,20 +18,24 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-06-10) — 이슈2 머지됨 · 최근파일 재열기 구현(실폰 검증 대기)
+## Status (2026-06-10) — 이슈2 · 최근파일 재열기 · 첫화면 인셋 머지 완료
 
-**이슈2까지 main 에 머지 완료 (fix `72818f5` 포함, 브랜치 삭제).** 실폰(S21+) 사용자 확인
-완료 — "잘되더라". **최근파일 재열기**는 구현 완료(브랜치 `feat/recent-files-reopen`,
-단위테스트 82통과) — 실폰 검증 후 머지 예정.
+**이슈2 · 최근파일 재열기 · 첫화면 인셋까지 main 에 머지 완료.** 모두 실폰(S21+) 사용자
+확인 완료 — 최근파일 재열기 "잘된다", 첫화면 인셋 캡처 확인 (2026-06-10).
 
-> **최근파일 재열기 (2026-06-10) 구현 완료·실폰 검증 대기 — 카톡 URI 재열기 권한 문제 해결.**
+> **최근파일 재열기 (2026-06-10) 완료·머지 — 카톡 URI 재열기 권한 문제 해결.**
 > 근본 원인: 카톡·공유 `content://` URI 는 `takePersistableUriPermission` 불가 → 앱 재시작
 > 후 재열기가 권한 오류로 실패. 수정(복사본 우선): 로드 성공 시 `cacheDir` 복사본을
 > `filesDir/recent/<hash>.dwg` 로 이동해 영구 보관, 재열기는 이 복사본을 정본으로 직접 파싱
 > (원본 URI 권한 불필요), 복사본 소실 시에만 원본 URI 폴백 → 그것도 실패하면 목록 자동 제거.
 > 보관 10개+200MB 캡(`RetentionPolicy` 순수함수), 길게눌러 삭제, 고아 sweep. 검증: 단위테스트
-> 82개 통과(기존 77+RetentionPolicy 5), `assembleDebug` 성공. **실폰 검증 체크리스트·머지 절차:
-> `docs/superpowers/handoff/2026-06-10-recent-files-reopen-done.md`.**
+> 82개 통과(기존 77+RetentionPolicy 5), `assembleDebug` 성공, 실폰 확인 "잘된다". 상세:
+> `docs/superpowers/handoff/2026-06-10-recent-files-reopen-done.md`.
+>
+> **첫 화면 상태바 인셋 (2026-06-10) — edge-to-edge 겹침 수정.** targetSdk 36에서 안드15+
+> edge-to-edge 강제로 툴바(앱 이름)가 상태바와 겹쳐 구분이 안 됐다. `activity_main.xml` 루트에
+> `android:fitsSystemWindows="true"` 적용 → 상태바 높이만큼 패딩, 툴바가 정상 위치로 내려감.
+> 실폰(S21+) 캡처로 before/after 확인.
 
 > **이슈2 (2026-06-10) XCLIP 부분침범 해치 기하 클리핑 완료 — 표제란 회색 덩어리 해결.**
 > 근본 원인: 배치도 맵(XCLIP된 INSERT)의 도로 솔리드 해치(216K 폭)가 클립창을 22.3K
@@ -92,6 +96,12 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 > 상세는 Phase 10 핸드오프 참조.
 
 ### 작동 중 ✅
+- **최근파일 재열기 (2026-06-10, 복사본 우선)** — 로드 성공 시 복사본을 `filesDir/recent/<hash>.dwg`
+  에 영구 보관, 재열기는 이 복사본을 정본으로 직접 파싱(원본 URI 권한 불필요). 복사본 소실 시에만
+  원본 URI 폴백 → 실패 시 목록 자동 제거. 10개+200MB 캡(`RetentionPolicy`), 길게눌러 삭제, 고아 sweep.
+  카톡 비-persistable URI 재시작 후 재열기 실패가 해소됨. 실폰(S21+) 확인 "잘된다". 단위테스트 82개.
+- **첫 화면 상태바 인셋 (2026-06-10)** — targetSdk 36 edge-to-edge 강제로 툴바(앱 이름)가 상태바와
+  겹치던 문제. `activity_main.xml` 루트에 `fitsSystemWindows="true"` 적용. 실폰 캡처 확인.
 - **XCLIP 부분침범 해치 클리핑 (이슈2)** — 클립창을 부분 침범하는 자식 HATCH의 경계 루프를
   Sutherland–Hodgman으로 클립창에 클립(`clip_loop_to_rect`). 채움/패턴/경계가 표제란 등
   클립 밖으로 안 번짐. overflow 통째 컬링 제거 — 클립 안 부분은 정상 표시.
@@ -173,12 +183,7 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 다음 세션 작업 (우선순위 순):
-1. **최근파일 재열기 — 구현 완료, 실폰 검증 대기** (브랜치 `feat/recent-files-reopen`).
-   복사본 우선: `filesDir/recent/<hash>.dwg` 영구 보관, 재열기는 복사본 직접 파싱(원본 URI
-   권한 불필요), 소실 시 원본 폴백 → 실패 시 자동 제거. 10개+200MB 캡·길게눌러 삭제·고아 sweep.
-   단위테스트 82통과·빌드 성공. **검증 체크리스트·머지 절차:
-   `docs/superpowers/handoff/2026-06-10-recent-files-reopen-done.md`.**
-2. **세로 흰 선** — 사용자가 이슈2 타깃에서 제외했지만 미조사 잔존 (ref.dwg 우상단
+1. **세로 흰 선** — 사용자가 이슈2 타깃에서 제외했지만 미조사 잔존 (ref.dwg 우상단
    빨간 사선과 동류 가능성).
 2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9 보고. LEADER arrowhead/DIMENSION 정의점/
    작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
