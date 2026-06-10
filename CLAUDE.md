@@ -18,11 +18,10 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-06-10) — 이슈2 XCLIP 해치 클리핑 완료 (실폰 확인 대기)
+## Status (2026-06-10) — 이슈2 XCLIP 해치 클리핑 완료·머지됨
 
-**Phase 8.6 까지 main 에 머지됨 (HEAD `2ffe2cd`, PR #4 머지 완료).** 이슈2(XCLIP 부분침범
-해치)는 브랜치 `fix/issue2-xclip-hatch-bleed` 에 커밋(`72818f5`) — 에뮬 정량검증 완료,
-**실폰(S21+) 사용자 확인 대기, 미머지.**
+**이슈2까지 main 에 머지 완료 (fix `72818f5` 포함, 브랜치 삭제).** 실폰(S21+) 사용자 확인
+완료 — "잘되더라". 다음 작업: **최근파일 재열기** (카톡 URI 권한 문제, 아래 참조).
 
 > **이슈2 (2026-06-10) XCLIP 부분침범 해치 기하 클리핑 완료 — 표제란 회색 덩어리 해결.**
 > 근본 원인: 배치도 맵(XCLIP된 INSERT)의 도로 솔리드 해치(216K 폭)가 클립창을 22.3K
@@ -85,7 +84,8 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 작동 중 ✅
 - **XCLIP 부분침범 해치 클리핑 (이슈2)** — 클립창을 부분 침범하는 자식 HATCH의 경계 루프를
   Sutherland–Hodgman으로 클립창에 클립(`clip_loop_to_rect`). 채움/패턴/경계가 표제란 등
-  클립 밖으로 안 번짐. overflow 통째 컬링 제거 — 클립 안 부분은 정상 표시. (브랜치 미머지)
+  클립 밖으로 안 번짐. overflow 통째 컬링 제거 — 클립 안 부분은 정상 표시.
+  실폰(S21+) 사용자 확인 완료 (2026-06-10).
 - **HATCH 패턴 채움 (Phase 8.6)** — 비솔리드 HATCH를 임베드 def-line으로 실제 패턴 라인 렌더
   (ANSI31·AR-RROOF 등). native `write_hatch`가 스캔라인 클리핑(even-odd+dash)으로 채움 라인 생성,
   줌 게이트로 멀리=반투명 솔리드/가까이=패턴 라인. 곡선 경계·밀도초과는 솔리드 폴백. (브랜치 미머지)
@@ -163,9 +163,13 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 다음 세션 작업 (우선순위 순):
-1. **이슈2 마무리** — 실폰(S21+)에서 `01. 건축도면-1.dwg` 배치도 표제란 회색 덩어리 소멸을
-   사용자 확인 후 `fix/issue2-xclip-hatch-bleed` 머지. 남은 관찰: 화면 관통 **세로 흰 선**
-   (사용자가 이번 타깃에서 제외, 미조사 — ref.dwg 우상단 빨간 사선과 동류 가능성).
+1. **최근파일 재열기 (사용자 요청, 다음 세션 메인)** — 카톡 등 인텐트로 받은 파일은
+   `takePersistableUriPermission` 불가 URI 라 앱 재시작 후 최근파일에서 재열기 실패.
+   방향: 로드 성공 시 복사본을 filesDir 영구 보관(최근 N개 용량 캡) + 재열기 시 원본
+   URI → 실패하면 로컬 복사본 폴백. **준비 문서:
+   `docs/superpowers/handoff/2026-06-10-next-recent-files-reopen.md`** (현행 구조·브레인스토밍 질문).
+2. **세로 흰 선** — 사용자가 이슈2 타깃에서 제외했지만 미조사 잔존 (ref.dwg 우상단
+   빨간 사선과 동류 가능성).
 2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9 보고. LEADER arrowhead/DIMENSION 정의점/
    작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
 - **HATCH 패턴**: Phase 8.6 + 후속 곡선경계 버그수정으로 일반 지원(작동 중 ✅). 남은 개선:
