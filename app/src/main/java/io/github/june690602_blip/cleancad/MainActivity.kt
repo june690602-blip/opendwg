@@ -10,12 +10,14 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import io.github.june690602_blip.cleancad.ui.RecentFilesManager
 import io.github.june690602_blip.cleancad.ui.AboutActivity
 import io.github.june690602_blip.cleancad.ui.SettingsActivity
 import io.github.june690602_blip.cleancad.ui.ViewerActivity
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -62,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         container.removeAllViews()
 
         val files = RecentFilesManager(this).getAll()
+        sweepOrphans(files)
         if (files.isEmpty()) {
             tvEmpty.visibility = View.VISIBLE
             return
@@ -70,10 +73,39 @@ class MainActivity : AppCompatActivity() {
         files.forEach { file ->
             Button(this).apply {
                 text = file.name
-                setOnClickListener { launchViewer(Uri.parse(file.uri)) }
+                setOnClickListener { launchViewer(file) }
+                setOnLongClickListener { confirmDelete(file); true }
                 container.addView(this)
             }
         }
+    }
+
+    /** 목록에 없는(비정상 종료 등으로 남은) filesDir/recent 복사본을 제거. */
+    private fun sweepOrphans(files: List<RecentFilesManager.RecentFile>) {
+        val keep = files.mapNotNull { it.localPath }.toSet()
+        File(filesDir, "recent").listFiles()?.forEach { f ->
+            if (f.absolutePath !in keep) runCatching { f.delete() }
+        }
+    }
+
+    private fun confirmDelete(file: RecentFilesManager.RecentFile) {
+        AlertDialog.Builder(this)
+            .setTitle(file.name)
+            .setMessage(getString(R.string.recent_delete_confirm))
+            .setPositiveButton(getString(R.string.delete)) { _, _ ->
+                RecentFilesManager(this).remove(file.uri)
+                refreshRecentFiles()
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    private fun launchViewer(file: RecentFilesManager.RecentFile) {
+        startActivity(Intent(this, ViewerActivity::class.java).apply {
+            data = Uri.parse(file.uri)
+            putExtra(ViewerActivity.EXTRA_LOCAL_PATH, file.localPath)
+            putExtra(ViewerActivity.EXTRA_NAME, file.name)
+        })
     }
 
     private fun launchViewer(uri: Uri) {

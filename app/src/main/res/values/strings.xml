@@ -21,4 +21,7 @@
     <string name="about_source_link">소스코드: https://github.com/june690602-blip/opendwg</string>
     <string name="sheet_all">전체</string>
     <string name="sheet_n">시트 %d</string>
+    <string name="recent_delete_confirm">최근 목록에서 삭제할까요? (도면 원본은 그대로입니다)</string>
+    <string name="delete">삭제</string>
+    <string name="cancel">취소</string>
 </resources>
