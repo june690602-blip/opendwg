@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.june690602_blip.cleancad.NativeDwg
+import io.github.june690602_blip.cleancad.model.Drawing
 import io.github.june690602_blip.cleancad.model.SheetClusterer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,37 +23,60 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow<DrawingState>(DrawingState.Idle)
     val state: StateFlow<DrawingState> = _state.asStateFlow()
 
-    fun load(uri: Uri) {
+    /**
+     * @param uri         원본 content URI (목록 dedup 키로도 사용).
+     * @param localPath   재열기 시 로컬 복사본 경로. 존재하면 복사 없이 바로 파싱.
+     * @param fallbackName 재열기 시 목록의 표시 이름(원본 URI 권한이 없을 수 있어 우선 사용).
+     */
+    fun load(uri: Uri, localPath: String? = null, fallbackName: String? = null) {
         if (_state.value is DrawingState.Loading) return
         viewModelScope.launch {
             _state.value = DrawingState.Loading
-            Log.i(TAG, "load: start uri=$uri")
+            Log.i(TAG, "load: start uri=$uri localPath=$localPath")
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val ctx = getApplication<Application>()
 
-                    val displayName = ctx.contentResolver.query(
-                        uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
-                    )?.use { cursor ->
-                        if (cursor.moveToFirst()) cursor.getString(0) else null
-                    } ?: uri.lastPathSegment ?: uri.toString()
+                    // 파싱할 정본 파일을 결정한다.
+                    val cached = localPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 }
+                    val dwgFile: File
+                    val displayName: String
+                    if (cached != null) {
+                        // 재열기: 영구 복사본 직접 사용(복사 생략).
+                        dwgFile = cached
+                        displayName = fallbackName ?: cached.name
+                        Log.i(TAG, "load: reopen from copy ${cached.length()} bytes ($displayName)")
+                    } else {
+                        // 신규 열기(또는 복사본 소실 폴백): 원본 URI → cacheDir 복사 → 검증 → filesDir 이동.
+                        displayName = ctx.contentResolver.query(
+                            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                            ?: fallbackName ?: uri.lastPathSegment ?: uri.toString()
 
-                    val tag = uri.hashCode().toUInt().toString(16)
-                    val dwgFile = File(ctx.cacheDir, "dwg_$tag.dwg")
-                    val stream = ctx.contentResolver.openInputStream(uri)
-                        ?: throw IOException("파일을 열 수 없습니다: $uri")
-                    val t0 = System.currentTimeMillis()
-                    stream.use { it.copyTo(dwgFile.outputStream()) }
-                    val t1 = System.currentTimeMillis()
-                    Log.i(TAG, "load: copied ${dwgFile.length()} bytes to cache in ${t1 - t0}ms ($displayName)")
+                        val tag = uri.hashCode().toUInt().toString(16)
+                        val cacheFile = File(ctx.cacheDir, "dwg_$tag.dwg")
+                        val stream = ctx.contentResolver.openInputStream(uri)
+                            ?: throw IOException("파일을 열 수 없습니다: $uri")
+                        val t0 = System.currentTimeMillis()
+                        stream.use { it.copyTo(cacheFile.outputStream()) }
+                        Log.i(TAG, "load: copied ${cacheFile.length()} bytes in ${System.currentTimeMillis() - t0}ms ($displayName)")
 
-                    // octet-stream 인텐트 필터를 폭넓게 열어둔 탓에 카톡 외 임의 바이너리도
-                    // 들어올 수 있다. 무거운 네이티브 파싱 전에 실제 DWG 인지 가볍게 검증한다.
-                    if (!isLikelyDwg(dwgFile, displayName)) {
-                        Log.w(TAG, "load: not a DWG — name=$displayName")
-                        throw IOException("DWG 도면 파일이 아닙니다. .dwg 파일을 열어주세요.")
+                        if (!isLikelyDwg(cacheFile, displayName)) {
+                            Log.w(TAG, "load: not a DWG — name=$displayName")
+                            throw IOException("DWG 도면 파일이 아닙니다. .dwg 파일을 열어주세요.")
+                        }
+
+                        // 복사본 영구화: filesDir/recent/<tag>.dwg 로 이동.
+                        val recentDir = File(ctx.filesDir, "recent").apply { mkdirs() }
+                        val dest = File(recentDir, "$tag.dwg")
+                        if (!cacheFile.renameTo(dest)) {
+                            cacheFile.copyTo(dest, overwrite = true)
+                            cacheFile.delete()
+                        }
+                        dwgFile = dest
                     }
 
+                    val t1 = System.currentTimeMillis()
                     val drawing = NativeDwg.parseToDrawing(dwgFile.absolutePath)
                     val t2 = System.currentTimeMillis()
                     val sheets = SheetClusterer.cluster(drawing.entities)
@@ -64,23 +88,19 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
                             "entityColors=${drawing.entityColors.size}, sheets=${sheets.size}, " +
                             "extents=${drawing.extents}, displayExtents=${drawing.displayExtents}"
                     )
-                    sheets.forEachIndexed { i, s ->
-                        Log.i(TAG, "load: sheet[$i] bbox=(${s.bbox.minX.toInt()},${s.bbox.minY.toInt()})~(${s.bbox.maxX.toInt()},${s.bbox.maxY.toInt()}) size=${s.bbox.width.toInt()}x${s.bbox.height.toInt()}")
-                    }
-                    // displayExtents: 검출 시트 합집합을 seed 로 1배 확장한 영역 안의 엔티티 bbox.
-                    // 순수 sheet-union 은 표지·도면목록표·사업개요 같은 저밀도 시트(P5-P95 밖으로
-                    // 밀려 검출 bbox에서 빠짐)를 renderBounds 로 컬링해 버린다. inclusiveExtents 는
-                    // 인접 저밀도 시트는 포함하고 먼 junk outlier(±수백만)는 제외한다 (Phase 10.4).
                     val displayExt = SheetClusterer.inclusiveExtents(drawing.entities, sheets)
                         ?: drawing.displayExtents
                     Log.i(TAG, "load: displayExtents(inclusive)=$displayExt")
-                    Triple(drawing.copy(sheets = sheets, displayExtents = displayExt), displayName, uri)
+                    LoadResult(
+                        drawing.copy(sheets = sheets, displayExtents = displayExt),
+                        displayName, uri, dwgFile.absolutePath, dwgFile.length()
+                    )
                 }
             }
             result.fold(
-                onSuccess = { (drawing, displayName, loadedUri) ->
-                    Log.i(TAG, "load: SUCCESS — ${drawing.entities.size} entities")
-                    _state.value = DrawingState.Success(drawing, displayName, loadedUri)
+                onSuccess = { r ->
+                    Log.i(TAG, "load: SUCCESS — ${r.drawing.entities.size} entities, copy=${r.localPath}")
+                    _state.value = DrawingState.Success(r.drawing, r.displayName, r.uri, r.localPath, r.size)
                 },
                 onFailure = { e ->
                     Log.e(TAG, "load: FAILURE", e)
@@ -89,6 +109,14 @@ class DrawingViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
     }
+
+    private data class LoadResult(
+        val drawing: Drawing,
+        val displayName: String,
+        val uri: Uri,
+        val localPath: String,
+        val size: Long,
+    )
 
     private companion object {
         private const val TAG = "CleanCAD/ViewModel"

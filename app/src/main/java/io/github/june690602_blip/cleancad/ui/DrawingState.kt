@@ -9,7 +9,9 @@ sealed class DrawingState {
     data class Success(
         val drawing: Drawing,
         val displayName: String,
-        val uri: Uri
+        val uri: Uri,
+        val localPath: String,
+        val size: Long,
     ) : DrawingState()
     data class Error(val message: String) : DrawingState()
 }
