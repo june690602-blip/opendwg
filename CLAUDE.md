@@ -18,10 +18,20 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-06-10) — 이슈2 XCLIP 해치 클리핑 완료·머지됨
+## Status (2026-06-10) — 이슈2 머지됨 · 최근파일 재열기 구현(실폰 검증 대기)
 
 **이슈2까지 main 에 머지 완료 (fix `72818f5` 포함, 브랜치 삭제).** 실폰(S21+) 사용자 확인
-완료 — "잘되더라". 다음 작업: **최근파일 재열기** (카톡 URI 권한 문제, 아래 참조).
+완료 — "잘되더라". **최근파일 재열기**는 구현 완료(브랜치 `feat/recent-files-reopen`,
+단위테스트 82통과) — 실폰 검증 후 머지 예정.
+
+> **최근파일 재열기 (2026-06-10) 구현 완료·실폰 검증 대기 — 카톡 URI 재열기 권한 문제 해결.**
+> 근본 원인: 카톡·공유 `content://` URI 는 `takePersistableUriPermission` 불가 → 앱 재시작
+> 후 재열기가 권한 오류로 실패. 수정(복사본 우선): 로드 성공 시 `cacheDir` 복사본을
+> `filesDir/recent/<hash>.dwg` 로 이동해 영구 보관, 재열기는 이 복사본을 정본으로 직접 파싱
+> (원본 URI 권한 불필요), 복사본 소실 시에만 원본 URI 폴백 → 그것도 실패하면 목록 자동 제거.
+> 보관 10개+200MB 캡(`RetentionPolicy` 순수함수), 길게눌러 삭제, 고아 sweep. 검증: 단위테스트
+> 82개 통과(기존 77+RetentionPolicy 5), `assembleDebug` 성공. **실폰 검증 체크리스트·머지 절차:
+> `docs/superpowers/handoff/2026-06-10-recent-files-reopen-done.md`.**
 
 > **이슈2 (2026-06-10) XCLIP 부분침범 해치 기하 클리핑 완료 — 표제란 회색 덩어리 해결.**
 > 근본 원인: 배치도 맵(XCLIP된 INSERT)의 도로 솔리드 해치(216K 폭)가 클립창을 22.3K
@@ -163,11 +173,11 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 다음 세션 작업 (우선순위 순):
-1. **최근파일 재열기 (사용자 요청, 다음 세션 메인)** — 카톡 등 인텐트로 받은 파일은
-   `takePersistableUriPermission` 불가 URI 라 앱 재시작 후 최근파일에서 재열기 실패.
-   방향: 로드 성공 시 복사본을 filesDir 영구 보관(최근 N개 용량 캡) + 재열기 시 원본
-   URI → 실패하면 로컬 복사본 폴백. **준비 문서:
-   `docs/superpowers/handoff/2026-06-10-next-recent-files-reopen.md`** (현행 구조·브레인스토밍 질문).
+1. **최근파일 재열기 — 구현 완료, 실폰 검증 대기** (브랜치 `feat/recent-files-reopen`).
+   복사본 우선: `filesDir/recent/<hash>.dwg` 영구 보관, 재열기는 복사본 직접 파싱(원본 URI
+   권한 불필요), 소실 시 원본 폴백 → 실패 시 자동 제거. 10개+200MB 캡·길게눌러 삭제·고아 sweep.
+   단위테스트 82통과·빌드 성공. **검증 체크리스트·머지 절차:
+   `docs/superpowers/handoff/2026-06-10-recent-files-reopen-done.md`.**
 2. **세로 흰 선** — 사용자가 이슈2 타깃에서 제외했지만 미조사 잔존 (ref.dwg 우상단
    빨간 사선과 동류 가능성).
 2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9 보고. LEADER arrowhead/DIMENSION 정의점/
