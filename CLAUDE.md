@@ -18,12 +18,24 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 - Phase 8 plan (현재 진행 중): `docs/superpowers/plans/2026-05-27-phase8-libredwg-native.md`
 - Phase 7 plan (DXF 시도, 부분 성공): `docs/superpowers/plans/2026-05-27-phase7-rendering-quality.md`
 
-## Status (2026-06-09) — Phase 8.6 HATCH 패턴 렌더링 완료
+## Status (2026-06-10) — 이슈2 XCLIP 해치 클리핑 완료 (실폰 확인 대기)
 
-**Phase 9.4/10/11 은 main 에 커밋됨 (HEAD `89f7698`).** Phase 8.6(HATCH 패턴)은 브랜치
-`feat/hatch-pattern-rendering`(**PR #4**) 에 작업, 아직 **미머지**(HEAD `ca4e466`).
-사용자 실파일(`01.건축도면-1.dwg`, S21+) 검증 완료 — 사용자 "잘 해결됐네".
+**Phase 8.6 까지 main 에 머지됨 (HEAD `2ffe2cd`, PR #4 머지 완료).** 이슈2(XCLIP 부분침범
+해치)는 브랜치 `fix/issue2-xclip-hatch-bleed` 에 커밋(`72818f5`) — 에뮬 정량검증 완료,
+**실폰(S21+) 사용자 확인 대기, 미머지.**
 
+> **이슈2 (2026-06-10) XCLIP 부분침범 해치 기하 클리핑 완료 — 표제란 회색 덩어리 해결.**
+> 근본 원인: 배치도 맵(XCLIP된 INSERT)의 도로 솔리드 해치(216K 폭)가 클립창을 22.3K
+> 침범하는데, HATCH 클립 처리가 완전밖/극단초과만 통째 컬링하고 **부분 침범은 무클립
+> 통과** → 채움이 클립창 오른쪽(=표제란) 위로 번짐. 수정: `write_hatch`가 루프 빌드 직후
+> 루프별 **Sutherland–Hodgman 클립**(`clip_loop_to_rect`, 클립창 완전포함 루프는 무변경
+> 빠른경로) — 채움/패턴/경계 stroke 모두 클립 안으로. overflow 통째 컬링은 제거(클리핑이
+> 대체). 검증: H bbox 216000×18875→180000×16835(클립창 정확 일치), 엔티티 101,603 불변,
+> ref.dwg 192,958(+76 — 통째컬링되던 해치 복귀, 회색띠 재발 없음), 단위테스트 77개.
+> ⚠️ 전 세션의 "도면↔원점 걸침 stray" 가설은 실측 기각(그런 엔티티 0건). 진단 핵심:
+> 사용자 스크린샷의 `223-5 도` 라벨로 화면↔월드 캘리브레이션 + native 임시 DLOG.
+> 상세: `docs/superpowers/handoff/2026-06-10-issue2-xclip-hatch-clipping.md`.
+>
 > **Phase 8.6 (2026-06-09) HATCH 패턴 렌더링 완료 — 실제 패턴 라인 재현.**
 > 근본 원인: 비솔리드 HATCH가 경계선만 렌더(패턴 정의선 무시) → 다른 캐드앱 대비 시각 차이 큼.
 > 수정: `dwg_serialize.c` `write_hatch` 재작성 — 로드 시 1회 패턴 def-line을 경계로 **스캔라인
@@ -71,6 +83,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 > 상세는 Phase 10 핸드오프 참조.
 
 ### 작동 중 ✅
+- **XCLIP 부분침범 해치 클리핑 (이슈2)** — 클립창을 부분 침범하는 자식 HATCH의 경계 루프를
+  Sutherland–Hodgman으로 클립창에 클립(`clip_loop_to_rect`). 채움/패턴/경계가 표제란 등
+  클립 밖으로 안 번짐. overflow 통째 컬링 제거 — 클립 안 부분은 정상 표시. (브랜치 미머지)
 - **HATCH 패턴 채움 (Phase 8.6)** — 비솔리드 HATCH를 임베드 def-line으로 실제 패턴 라인 렌더
   (ANSI31·AR-RROOF 등). native `write_hatch`가 스캔라인 클리핑(even-odd+dash)으로 채움 라인 생성,
   줌 게이트로 멀리=반투명 솔리드/가까이=패턴 라인. 곡선 경계·밀도초과는 솔리드 폴백. (브랜치 미머지)
@@ -148,12 +163,9 @@ Ad-free Android DWG viewer for construction-site users. Open source, GPL v3.
 ### 진행 중 ⏳ — 다음 세션에서 이어갈 작업
 
 다음 세션 작업 (우선순위 순):
-1. **이슈 2: 도면영역 클리핑 (다음 세션 메인)** — 도면 영역(displayExtents/시트) 밖으로 뻗는
-   stray 지오메트리(원점까지 가는 선·해치, 도면 밖 outlier)가 화면에 길게 그려지는 문제로 추정.
-   현재 `renderBounds`(displayExtents) 컬링은 bbox-intersect 기반이라, 도면↔원점을 **걸치는**
-   엔티티는 bbox가 영역과 겹쳐 컬링 안 됨 → 긴 stray 선으로 보임(추정). **준비 문서:
-   `docs/superpowers/handoff/2026-06-09-next-issue2-clipping.md`** (이번 세션 관찰·관련 코드·가설 정리).
-   ⚠️ **정확한 범위는 다음 세션 시작 시 사용자와 브레인스토밍으로 확정** (이번 세션 교훈: 추측 금지, 실파일 확인).
+1. **이슈2 마무리** — 실폰(S21+)에서 `01. 건축도면-1.dwg` 배치도 표제란 회색 덩어리 소멸을
+   사용자 확인 후 `fix/issue2-xclip-hatch-bleed` 머지. 남은 관찰: 화면 관통 **세로 흰 선**
+   (사용자가 이번 타깃에서 제외, 미조사 — ref.dwg 우상단 빨간 사선과 동류 가능성).
 2. **"ㄱ 모양" 산발 마커 미조사 (Task 12)** — 시트 8/9 보고. LEADER arrowhead/DIMENSION 정의점/
    작은 INSERT 심볼 중 하나로 추정. 에뮬레이터 줌인 후 원인 파악 필요.
 - **HATCH 패턴**: Phase 8.6 + 후속 곡선경계 버그수정으로 일반 지원(작동 중 ✅). 남은 개선:
