@@ -60,12 +60,16 @@ class ViewerActivity : AppCompatActivity() {
                                 )
                             }
                             RecentFilesManager(this@ViewerActivity).add(
-                                state.uri.toString(), state.displayName
+                                state.uri.toString(), state.displayName, state.localPath, state.size
                             )
                             showDrawing()
                             drawingView.setDrawing(state.drawing)
                         }
                         is DrawingState.Error -> {
+                            // 복사본도 원본도 못 연 항목은 최근목록에서 제거(다음 복귀 시 사라짐).
+                            incomingUri()?.let {
+                                RecentFilesManager(this@ViewerActivity).remove(it.toString())
+                            }
                             showError(getString(R.string.error_prefix) + state.message)
                         }
                     }
@@ -75,7 +79,15 @@ class ViewerActivity : AppCompatActivity() {
 
         if (viewModel.state.value is DrawingState.Idle) {
             val uri = incomingUri()
-            if (uri != null) viewModel.load(uri) else openDoc.launch(arrayOf("*/*"))
+            if (uri != null) {
+                viewModel.load(
+                    uri,
+                    intent.getStringExtra(EXTRA_LOCAL_PATH),
+                    intent.getStringExtra(EXTRA_NAME),
+                )
+            } else {
+                openDoc.launch(arrayOf("*/*"))
+            }
         }
     }
 
@@ -120,5 +132,10 @@ class ViewerActivity : AppCompatActivity() {
         fabFit.visibility = View.GONE
         tvError.visibility = View.VISIBLE
         tvError.text = msg
+    }
+
+    companion object {
+        const val EXTRA_LOCAL_PATH = "io.github.june690602_blip.cleancad.LOCAL_PATH"
+        const val EXTRA_NAME = "io.github.june690602_blip.cleancad.NAME"
     }
 }
