@@ -41,6 +41,73 @@ static int clip_seg(double *x0, double *y0, double *x1, double *y1,
     return 1;
 }
 
+/* ---- XCLIP: 해치 경계 루프 클리핑 (Sutherland–Hodgman, 축정렬 사각형) ----
+ * 부분 침범 해치의 채움/패턴이 클립창 밖(표제란 등)으로 번지는 것 방지 (이슈2). */
+
+/* 반평면 1개로 닫힌 루프 클립. axis: 0=x, 1=y. keep_ge: 1이면 좌표>=lim 유지, 0이면 <=lim.
+ * in(2n doubles) → out(용량 ≥ 4n+8 doubles, 호출자 할당). 반환: 출력 점 수(≤2n). */
+static int clip_loop_halfplane(const double *in, int n, double *out,
+                               int axis, int keep_ge, double lim) {
+    int m = 0;
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        double cx = in[2*i], cy = in[2*i+1];
+        double nx = in[2*j], ny = in[2*j+1];
+        double cv = axis ? cy : cx;
+        double nv = axis ? ny : nx;
+        int cin = keep_ge ? (cv >= lim) : (cv <= lim);
+        int nin = keep_ge ? (nv >= lim) : (nv <= lim);
+        if (cin) { out[2*m] = cx; out[2*m+1] = cy; ++m; }
+        if (cin != nin) {                        /* 경계 교차점 추가 (cv!=nv 보장) */
+            double t = (lim - cv) / (nv - cv);
+            if (axis) { out[2*m] = cx + t * (nx - cx); out[2*m+1] = lim; }
+            else      { out[2*m] = lim;                out[2*m+1] = cy + t * (ny - cy); }
+            ++m;
+        }
+    }
+    return m;
+}
+
+/* 닫힌 루프(*pts_io: 2*(*np_io) doubles, world)를 [x0,x1]×[y0,y1]로 클립.
+ * 클립 결과로 버퍼 교체(원본 free). 결과 <3점이면 루프 드롭(*pts_io=NULL, *np_io=0).
+ * malloc 실패 시 진행된 만큼만 적용(안전한 보수적 폴백). */
+static void clip_loop_to_rect(double **pts_io, int *np_io,
+                              double x0, double y0, double x1, double y1) {
+    double *pts = *pts_io;
+    int n = *np_io;
+    if (!pts || n < 3) return;
+
+    /* 빠른 경로: 루프 bbox가 클립창에 완전 포함이면 무변경 */
+    double mnx = 1e18, mny = 1e18, mxx = -1e18, mxy = -1e18;
+    for (int i = 0; i < n; ++i) {
+        double px = pts[2*i], py = pts[2*i+1];
+        if (px < mnx) mnx = px; if (px > mxx) mxx = px;
+        if (py < mny) mny = py; if (py > mxy) mxy = py;
+    }
+    if (mnx >= x0 && mxx <= x1 && mny >= y0 && mxy <= y1) return;
+
+    const int    axes[4]  = {0, 0, 1, 1};
+    const int    keeps[4] = {1, 0, 1, 0};
+    const double lims[4]  = {x0, x1, y0, y1};
+    double *cur = pts; int cn = n;
+    for (int p = 0; p < 4 && cn >= 3; ++p) {
+        double *nb = (double *)malloc(sizeof(double) * (size_t)(4 * cn + 8));
+        if (!nb) break;
+        int m = clip_loop_halfplane(cur, cn, nb, axes[p], keeps[p], lims[p]);
+        if (cur != pts) free(cur);
+        cur = nb; cn = m;
+    }
+    if (cn < 3) {                                /* 완전 밖/퇴화 → 루프 드롭 */
+        if (cur != pts) free(cur);
+        free(pts);
+        *pts_io = NULL; *np_io = 0;
+        return;
+    }
+    if (cur == pts) return;                      /* 클립 패스 미수행(메모리 부족) */
+    free(pts);
+    *pts_io = cur; *np_io = cn;
+}
+
 typedef struct {
     uint8_t *buf;
     size_t   len;
@@ -894,6 +961,14 @@ static void write_hatch(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
             build_one_loop(&lb, &e->paths[L], &unsupported, sx, sy, rot, tx, ty);
             loop_pts[L] = lb.v; loop_np[L] = lb.n / 2;
         }
+        /* XCLIP: 경계 루프를 클립창으로 기하 클리핑 — 부분 침범 해치의 채움/패턴/
+         * 경계가 클립 밖으로 번지지 않게 (이슈2). 빈 루프(np=0)는 이후 단계
+         * (emit_defline_fill·emit 루프)가 자연히 스킵한다. */
+        if (g_clip_on) {
+            for (int L = 0; L < nloops; ++L)
+                clip_loop_to_rect(&loop_pts[L], &loop_np[L],
+                                  g_clx0, g_cly0, g_clx1, g_cly1);
+        }
     }
 
     DBuf fill; dbuf_init(&fill);
@@ -1308,7 +1383,7 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
 
     /* XCLIP 활성 시 클립 처리:
      *  - LINE/LWPOLYLINE/POLYLINE/INSERT/DIMENSION: 통과(leaf writer 가 잘라내거나 재귀가 처리)
-     *  - HATCH: world bbox 가 클립 밖 또는 클립크기 이상 overflow 면 컬링(회색 띠 방지)
+     *  - HATCH: 완전 밖이면 컬링, 부분 침범은 write_hatch 가 루프를 기하 클리핑
      *  - 소형 타입(원/호/텍스트 등): 대표점이 클립 밖이면 컬링 */
     if (g_clip_on) {
         switch (obj->fixedtype) {
@@ -1337,10 +1412,10 @@ static void write_entity(Writer *w, const Dwg_Data *dwg, const Dwg_Object *obj,
                         if (px<wmnx)wmnx=px; if (py<wmny)wmny=py;
                         if (px>wmxx)wmxx=px; if (py>wmxy)wmxy=py;
                     }
-                    double cw = g_clx1-g_clx0, ch = g_cly1-g_cly0;
                     int outside  = (wmxx<g_clx0||wmnx>g_clx1||wmxy<g_cly0||wmny>g_cly1);
-                    int overflow = (wmnx<g_clx0-cw||wmxx>g_clx1+cw||wmny<g_cly0-ch||wmxy>g_cly1+ch);
-                    if (outside || overflow) return;
+                    /* overflow(클립크기 이상 초과) 통째 컬링은 제거 — write_hatch 의
+                     * 루프 기하 클리핑이 대체한다. 클립창 안 부분은 정상 표시. */
+                    if (outside) return;
                 }
                 break;
             }
